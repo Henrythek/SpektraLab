@@ -46,7 +46,7 @@ commits.
 | `spk_reprint` | tested (Windows) | tested (host smoke: `reprinted: true` after a print-side delta) | |
 | `spk_contrast_mask_field` | refused | refused | RFC-024, see §2 |
 | `spk_scene_latitude` (analysis) | tested (Windows) | tested (host smoke) | the *analysis* runs; *applying* the mapping is refused |
-| `spk_overscan_geometry` | missing (link error) | tested: returns `{"valid":false}` | the merge left the symbol undefined; stubbed so the engine links |
+| `spk_overscan_geometry` | missing (link error) | tested: the gates with the film edge on, `{"valid":false}` off (`spk_windows_feature_boundaries`, host smoke) | `overscan.cpp` now builds off Apple |
 | `spk_print_lut_catalog` / `spk_print_lut_table` | tested (Windows) | tested (host smoke `export_cube`) | portable core |
 | `spk_preview_stock_lut` | tested (Windows) | tested (host smoke) | `spk_lut3d_trilinear` |
 | `spk_export_di` | tested (Windows) | tested (host smoke `export_di`) | normalised-density tap |
@@ -63,8 +63,8 @@ commits.
 | §1–§10 core render, tiers, reprint, live-mutable set | every field in `params_schema` predating RFC-024 | implemented; whole-image Metal parity unverified | same |
 | §11 contrast mask (RFC-024) | `contrast_mask_{active,highlights,shadows,core,scale,scheme}` | **refused** when `active` | refused |
 | §12 Scene Latitude (RFC-023) | `scene_latitude_{active,norm,shadow_knee,highlight_knee,shadow_room,highlight_room,max_lift,rolloff}` | **refused** when `active` (analysis call works) | refused |
-| §13 overscan / film edge (RFC-031/032) | `overscan_{active,mode,format,gate,holes,carrier,edge_text,frame_number,frame_seed,camera_seed,f_number,fog,leaks,pair}` | **refused** when `active` | refused |
-| §13 date back | `date_imprint_{active,text,text_b,data_text,style,corner,placement,size,ev,inset_x,inset_y}` | **refused** when `active` | refused |
+| §13 overscan / film edge (RFC-031/032) | `overscan_{active,mode,format,gate,holes,carrier,edge_text,frame_number,frame_seed,camera_seed,f_number,fog,leaks,pair}` | **refused** when `active` | **ported**: renders (CTest + host smoke on lavapipe); edge-print glyphs are TeX Gyre Heros, not Helvetica Neue; whole-image Metal parity unverified |
+| §13 date back | `date_imprint_{active,text,text_b,data_text,style,corner,placement,size,ev,inset_x,inset_y}` | **refused** when `active` | **ported** with the film edge (same raster); Metal parity unverified |
 | §14 `filter_shift_scale` | `filter_shift_scale` | implemented (portable `printing.cpp`) | implemented, untested here |
 | §15 `camera_filter` (2026-10-07) | `camera_filter` | — | implemented (portable `hanatos.cpp`, `params.cpp`; table in `camera_filters.hpp`), untested here; `desktop/mock-host/schema-fields.json` does not list it yet |
 | `io.digital_intermediate` (Cineon DI file) | | refused | refused |
@@ -88,11 +88,12 @@ commits.
 | `spk_di_encode` (Cineon DI) | **missing** | refused | refused |
 | `spk_mask_reduce`, `spk_mask_epilogue` (contrast mask) | **missing** | refused | refused |
 | `spk_scene_latitude` | **missing** | refused | refused |
-| `spk_overscan_canvas`, `spk_overscan_add_mask`, `spk_overscan_film_present`, `spk_overscan_light` | **missing** | refused | refused |
+| `spk_overscan_canvas`, `spk_overscan_add_mask`, `spk_overscan_film_present`, `spk_overscan_light` | **missing** | refused | ported (`spk_overscan_*.comp`, shared `spk_overscan.glsl`): a line-for-line transcription; exercised by whole renders, no per-kernel double gate yet |
 
 Host-side (C++) dependencies of the unported features: `contrast_mask.cpp`
-uses GCD (`dispatch_apply`); `overscan.cpp` uses CoreText/CoreGraphics for the
-edge print and date back, and vImage for a convolution.
+uses GCD (`dispatch_apply`). `overscan.cpp` keeps CoreText/CoreGraphics/vImage
+on macOS; elsewhere `edge_raster.cpp` draws the same ops (exact-area coverage,
+stb_truetype glyphs over `resources/fonts`, a threaded separable Gaussian).
 
 ## 4. What main added after 61bfc49 that Vulkan lacks
 

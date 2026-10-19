@@ -48,6 +48,7 @@
 #include "print_lut.hpp"
 #include "setup_cache.hpp"
 #ifndef __APPLE__
+#include "edge_raster.hpp"
 #include "windows_unported.hpp"
 #endif
 
@@ -319,8 +320,7 @@ struct spk_engine {
         // These upstream effects still require kernels or Apple services that
         // have not been ported. Defaults stay usable; explicit requests fail.
         Json unported = Json::array();
-        for (const char* feature : {"digital_intermediate", "scene_latitude_mapping",
-                                    "contrast_mask", "overscan", "date_imprint"})
+        for (const char* feature : {"digital_intermediate", "scene_latitude_mapping", "contrast_mask"})
             unported.push(Json(std::string(feature)));
         backend.set("unsupported_features", std::move(unported));
 #endif
@@ -580,6 +580,7 @@ spk_engine* spk_engine_create(const char* resources_dir, void* device) {
 #ifndef __APPLE__
     if (device) { g_error = "Windows device-buffer input is not implemented yet; pass null"; return nullptr; }
     engine->gpu = gpu::Gpu::create_vulkan(engine->resources_dir + "/vulkan", error);
+    edge::set_font_dir(engine->resources_dir);   // the film edge's text (resources/fonts)
 #else
     engine->gpu = gpu::Gpu::create_metal(device, engine->resources_dir + "/spektrafilm.metallib", error);
 #endif
@@ -1624,7 +1625,7 @@ spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out
     std::memset(out, 0, sizeof *out);
 #ifndef __APPLE__
     if (out_json) *out_json = nullptr;
-    g_error = windows_unported_error(true, false, false, false, false);
+    g_error = windows_unported_error(true, false, false);
     return SPK_ERR_USER;
 #endif
     if (session->params.film.info.is_positive()) {
