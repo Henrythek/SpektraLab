@@ -142,8 +142,12 @@ export type WireParams = Record<string, WireValue>;
 
 export interface OpenResult {
   session: string;
+  /** The frame the engine holds: the decode, or the decode cut by `frame`. */
   width: number;
   height: number;
+  /** The decode before a `frame` cut (hosts before the film edge omit these). */
+  source_width?: number;
+  source_height?: number;
   /** `raw` | `tiff` | `jpeg` | `png`. */
   kind?: string;
   metadata: FileMetadata;

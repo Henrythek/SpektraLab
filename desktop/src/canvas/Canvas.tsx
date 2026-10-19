@@ -30,6 +30,8 @@ import { GLRenderer, type DrawState } from './glRenderer';
 import { frameImages } from '../state/frames';
 import {
   beginGesture,
+  canvasGeometry,
+  filmCanvas,
   noteFitZoom,
   noteCanvasPx,
   sessionStore,
@@ -94,7 +96,9 @@ export function Canvas() {
   const uploaded = useRef({ print: null as unknown, original: null as unknown });
 
   const imageVersion = useSession((s) => s.imageVersion);
-  const geometry = useSession((s) => s.sidecar.geometry);
+  // With the film edge the print is the film: drawn whole, no geometry of its own.
+  const film = useSession((s) => filmCanvas(s));
+  const geometry = useSession((s) => canvasGeometry(s));
   const adjustments = useSession((s) => s.sidecar.adjustments);
   const nativeSize = useSession((s) => s.nativeSize);
   const view = useSession((s) => s.view);
@@ -128,7 +132,8 @@ export function Canvas() {
     return () => ro.disconnect();
   }, []);
 
-  const native = nativeSize ?? (frameImages.print ? { width: frameImages.print.width, height: frameImages.print.height } : null);
+  const printSize = frameImages.print ? { width: frameImages.print.width, height: frameImages.print.height } : null;
+  const native = film ? printSize : nativeSize ?? printSize;
   const layout =
     native && size.width > 0
       ? computeLayout(

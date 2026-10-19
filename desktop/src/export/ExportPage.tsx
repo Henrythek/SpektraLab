@@ -8,11 +8,12 @@
 // the editor takes no hits). The run's own door is `select`. Stop cancels
 // between frames; a frame being written is finished whole.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section } from '../controls/controls';
 import { t, tz } from '../i18n';
 import { platform, baseName } from '../platform';
-import { select, sessionStore, setPages, useSession } from '../state/session';
+import { canvasGeometry, filmCanvas, select, sessionStore, setPages, useSession } from '../state/session';
+import { frameImages } from '../state/frames';
 import { Thumb } from '../windows/Filmstrip';
 import { GEOMETRY_DEFAULT } from '@shared/geometry';
 import { useOutput } from '../canvas/output';
@@ -63,9 +64,20 @@ export function ExportPage() {
   const catalog = useSession((s) => s.catalog);
   const hello = useSession((s) => s.hello);
   const params = useSession((s) => s.sidecar.params);
-  const geometry = useSession((s) => s.sidecar.geometry);
+  const geometry = useSession((s) => canvasGeometry(s));
   const adjustments = useSession((s) => s.sidecar.adjustments);
-  const native = useSession((s) => s.nativeSize);
+  // With the film edge the file is the film canvas, the print's own size.
+  const film = useSession((s) => filmCanvas(s));
+  const nativeSize = useSession((s) => s.nativeSize);
+  const imageVersion = useSession((s) => s.imageVersion); // the print's size moves with each image
+  const printW = frameImages.print?.width ?? 0;
+  const printH = frameImages.print?.height ?? 0;
+  const native = useMemo(
+    () => (film && printW > 0 ? { width: printW, height: printH } : nativeSize),
+    // imageVersion: a new print may be another size
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [film, printW, printH, nativeSize, imageVersion],
+  );
   const saved = useSession((s) => s.savedGeometry);
   const output = useOutput();
   const [recipes, setRecipes] = useState<ExportRecipe[]>(DEFAULT_RECIPES);
@@ -129,8 +141,8 @@ export function ExportPage() {
             session: s.engineSession,
             params: s.sidecar.params,
             adjustments: s.sidecar.adjustments,
-            geometry: s.sidecar.geometry,
-            native: s.nativeSize,
+            geometry: canvasGeometry(s),
+            native: filmCanvas(s) && frameImages.print ? { width: frameImages.print.width, height: frameImages.print.height } : s.nativeSize,
             dateTaken: s.metadata?.datetime_original,
           },
           s.catalog,

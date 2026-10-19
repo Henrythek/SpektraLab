@@ -109,8 +109,6 @@ export const UNSUPPORTED_ON_PORT = [
   'digital_intermediate',
   'scene_latitude_mapping',
   'contrast_mask',
-  'overscan',
-  'date_imprint',
 ];
 
 const STOCKS: Record<string, number> = {};
@@ -378,7 +376,8 @@ export class MockHost {
       case 'scene_latitude':
         return { result: latitude(this.session(p), (p.request ?? {}) as Record<string, unknown>) };
       case 'overscan_geometry':
-        throw new HostError('unsupported', 'overscan is not available on this host');
+        // The mock draws no film; the real host reports the gates (API-SPEC §13).
+        return { result: { valid: false } };
       case 'preview_stock_lut': {
         const w = 64, h = 64;
         return { result: { image: imageInfo(w, h) }, payload: paint(w, h, hash(String(p.print_stock)), null) };
@@ -425,8 +424,6 @@ export class MockHost {
           digital_intermediate: 'digital_intermediate',
           scene_latitude_active: 'scene_latitude_mapping',
           contrast_mask_active: 'contrast_mask',
-          overscan_active: 'overscan',
-          date_imprint_active: 'date_imprint',
         };
         if (gate[k]) throw new HostError('unsupported', `${gate[k]} is not available on this host`);
       }
