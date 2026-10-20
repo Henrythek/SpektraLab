@@ -122,3 +122,39 @@ export const FlipV = ({ size, ...p }: P) => (
     <path d="M1 8h14M3 6L13 1.5V6zM3 10l10 4.5V10z" />
   </svg>
 );
+// The board language's marks: the sparkle on a lane or card header, the
+// Board/Editor switch's two glyphs, the theme switch.
+export const Spark = ({ size, ...p }: P) => (
+  <svg width={size ?? 11} height={size ?? 11} viewBox="0 0 12 12" fill="currentColor" {...p}>
+    <path d="M6 0.5c.35 2.6 1.1 3.9 2.2 4.6.8.5 1.9.8 3.3.9-1.4.1-2.5.4-3.3.9C7.1 7.6 6.35 8.9 6 11.5c-.35-2.6-1.1-3.9-2.2-4.6C3 6.4 1.9 6.1.5 6c1.4-.1 2.5-.4 3.3-.9C4.9 4.4 5.65 3.1 6 .5z" />
+  </svg>
+);
+export const BoardIcon = ({ size, ...p }: P) => (
+  <svg {...base(size ?? 14, p)}>
+    <rect x="1.5" y="2" width="3.6" height="12" rx="1" />
+    <rect x="6.2" y="2" width="3.6" height="8" rx="1" />
+    <rect x="10.9" y="2" width="3.6" height="10" rx="1" />
+  </svg>
+);
+export const EditorIcon = ({ size, ...p }: P) => (
+  <svg {...base(size ?? 14, p)}>
+    <rect x="1.5" y="2.5" width="13" height="11" rx="1.8" />
+    <path d="M3.5 11l3-3.5 2 2 1.5-1.5 2.5 3" />
+  </svg>
+);
+export const Sun = ({ size, ...p }: P) => (
+  <svg {...base(size ?? 15, p)}>
+    <circle cx="8" cy="8" r="3" />
+    <path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3 3l1.1 1.1M11.9 11.9L13 13M3 13l1.1-1.1M11.9 4.1L13 3" />
+  </svg>
+);
+export const Moon = ({ size, ...p }: P) => (
+  <svg {...base(size ?? 15, p)}>
+    <path d="M13.5 9.6A6 6 0 016.4 2.5a6 6 0 107.1 7.1z" />
+  </svg>
+);
+export const Check = ({ size, ...p }: P) => (
+  <svg {...base(size ?? 12, p)}>
+    <path d="M3 8.5l3 3 7-7" />
+  </svg>
+);

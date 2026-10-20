@@ -1,7 +1,10 @@
-// EditorWindow.tsx — three regions and a filmstrip (ARCHITECTURE §7.1):
-// Film and Print (left) | top bar + canvas + filmstrip | Parameters (right).
+// EditorWindow.tsx — three panels and a filmstrip floating on the window's
+// ground (ARCHITECTURE §7.1): Film and Print (left) | the stage — top bar over
+// the canvas or the film board — with the filmstrip under it | Parameters
+// (right).
 
 import { Canvas } from '../canvas/Canvas';
+import { FilmBoard } from '../panels/FilmBoard';
 import { LeftRail } from '../panels/LeftRail';
 import { RightRail } from '../panels/RightRail';
 import { useSettings } from '../state/settings';
@@ -15,22 +18,36 @@ export function EditorWindow() {
   const left = useSettings((s) => s.leftCollapsed);
   const right = useSettings((s) => s.rightCollapsed);
   const strip = useSettings((s) => s.filmstripCollapsed);
+  const board = useSettings((s) => s.workspace === 'board');
   const batch = useSession((s) => s.batchExporting);
   return (
     <>
       <div
         className="editor"
-        style={{ ['--left-col' as string]: left ? '0px' : 'var(--left-width)', ['--right-col' as string]: right ? '0px' : 'var(--right-width)', pointerEvents: batch ? 'none' : undefined }}
+        style={{
+          gridTemplateColumns: [left ? '' : 'var(--left-width)', 'minmax(0, 1fr)', right ? '' : 'var(--right-width)'].filter(Boolean).join(' '),
+          pointerEvents: batch ? 'none' : undefined,
+        }}
         data-testid="editor"
       >
-        {left ? <div /> : <LeftRail />}
-        <main className="centre" style={{ position: 'relative' }}>
-          <TopBar />
-          <Canvas />
+        {!left && <LeftRail />}
+        <main className="centre">
+          <div className="stage">
+            <TopBar />
+            <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              {/* The canvas stays mounted (and measured) under the board. */}
+              <Canvas />
+              {board && (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', background: 'var(--ground)', zIndex: 2 }}>
+                  <FilmBoard />
+                </div>
+              )}
+            </div>
+            <HostFailure />
+          </div>
           {!strip && <Filmstrip />}
-          <HostFailure />
         </main>
-        {right ? <div /> : <RightRail />}
+        {!right && <RightRail />}
       </div>
       <SettingsDialog />
       <AboutDialog />

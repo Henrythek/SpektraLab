@@ -11,6 +11,9 @@ import type { LanguageSetting } from '../i18n';
 import type { SideUnit } from '@shared/params';
 
 export type InterfaceScale = 100 | 115 | 130;
+export type Theme = 'dark' | 'light';
+/** The centre shows the picture (editor) or every film stock as a board. */
+export type Workspace = 'editor' | 'board';
 export const INTERFACE_SCALES: InterfaceScale[] = [100, 115, 130];
 export const PREVIEW_EDGES = [3840, 2560, 1920, 1080] as const;
 
@@ -31,6 +34,8 @@ export interface Settings {
   collapsedSections: Record<string, boolean>;
   lastFolder: string | null;
   settingsPage: 'general' | 'rendering' | 'diagnostics';
+  theme: Theme;
+  workspace: Workspace;
 }
 
 export const SETTINGS_DEFAULT: Settings = {
@@ -45,11 +50,13 @@ export const SETTINGS_DEFAULT: Settings = {
   leftCollapsed: false,
   rightCollapsed: false,
   filmstripCollapsed: false,
-  leftWidth: 254,
-  rightWidth: 288,
+  leftWidth: 284,
+  rightWidth: 304,
   collapsedSections: {},
   lastFolder: null,
   settingsPage: 'general',
+  theme: 'dark',
+  workspace: 'editor',
 };
 
 const KEY = 'ui2.settings';

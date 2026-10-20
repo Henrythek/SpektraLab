@@ -46,8 +46,19 @@ const TARGETS = {
   // this build machine's egress policy. SPEKTRALAB_WIN_TOOLCHAIN=msvc uses
   // Tauri's documented cargo-xwin path where that download is allowed.
   win:
-    // Native on Windows (CI's windows-latest): MSVC, no cross runner.
-    process.platform === 'win32'
+    // Native on Windows without Visual Studio: the GNU Rust toolchain
+    // (rustup default stable-x86_64-pc-windows-gnu) and MinGW-w64.
+    process.platform === 'win32' && process.env.SPEKTRALAB_WIN_TOOLCHAIN === 'gnu'
+      ? {
+          hostDir: join(buildDir, 'host-win-x64'),
+          exe: 'spektralab-host.exe',
+          triple: 'x86_64-pc-windows-gnu',
+          bundles: 'nsis',
+          out: 'windows',
+          extra: [],
+        }
+      : // Native on Windows (CI's windows-latest): MSVC, no cross runner.
+      process.platform === 'win32'
       ? {
           hostDir: join(buildDir, 'host-win-x64'),
           exe: 'spektralab-host.exe',
@@ -109,7 +120,7 @@ function collect(t) {
   rmSync(release, { recursive: true, force: true });
   mkdirSync(release, { recursive: true });
   // A cross build lands under target/<triple>/; a native one under target/release/.
-  const roots = which === 'linux' ? [join(tauriDir, 'target', 'release', 'bundle')] : [join(tauriDir, 'target', t.triple, 'release', 'bundle')];
+  const roots = which === 'linux' || t.extra.length === 0 ? [join(tauriDir, 'target', 'release', 'bundle')] : [join(tauriDir, 'target', t.triple, 'release', 'bundle')];
   const found = [];
   for (const root of roots) {
     if (!existsSync(root)) continue;

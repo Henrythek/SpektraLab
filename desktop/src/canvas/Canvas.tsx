@@ -44,8 +44,11 @@ import {
 import { HistogramOverlay, histogramOf, type Histogram } from './histogram';
 import { publishOutput } from './output';
 import { useI18n } from '../i18n';
+import { useSettings } from '../state/settings';
 
-const SURROUND = 0x5f / 255;
+// The letterbox around the picture: the theme's ground (--ground), a neutral
+// grey so the picture is judged against no colour.
+const surroundOf = (theme: string) => (theme === 'light' ? 0xf3 : 0x1b) / 255;
 
 export interface Layout {
   viewport: { width: number; height: number };
@@ -87,6 +90,7 @@ export function computeLayout(
 
 export function Canvas() {
   const { tz } = useI18n();
+  const SURROUND = surroundOf(useSettings((s) => s.theme));
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const gl = useRef<GLRenderer | null>(null);
@@ -199,7 +203,7 @@ export function Canvas() {
       surround: SURROUND,
     };
     r.draw(state);
-  }, [imageVersion, layout?.zoom, layout?.offset.x, layout?.offset.y, size, geometry, adjustments, cropping, comparing, comparePosition, showingOriginal, layout]);
+  }, [imageVersion, layout?.zoom, layout?.offset.x, layout?.offset.y, size, geometry, adjustments, cropping, comparing, comparePosition, showingOriginal, layout, SURROUND]);
 
   // The output, small: navigator and histogram (the canvas's frame, trap 33).
   useEffect(() => {
@@ -376,7 +380,7 @@ export function Canvas() {
     >
       <canvas ref={canvas} className="canvas-gl" />
       {glError && <div className="canvas-message">{tz('This display cannot draw the picture (WebGL2): ', '此显示无法绘制画面（WebGL2）：') + glError}</div>}
-      {!selection && !glError && <div className="canvas-message">{tz('Open a folder or drop photographs here (Ctrl+O).', '打开文件夹或把照片拖到这里（Ctrl+O）。')}</div>}
+      {!selection && !glError && <div className="canvas-message"><span>{tz('Open a folder or drop photographs here (Ctrl+O).', '打开文件夹或把照片拖到这里（Ctrl+O）。')}</span></div>}
       {layout && cropping && <CropOverlay layout={layout} geometry={geometry} dpr={size.dpr} />}
       {layout && comparing && !cropping && (
         <div

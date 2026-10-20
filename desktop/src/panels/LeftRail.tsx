@@ -38,6 +38,7 @@ import {
 import { clamp } from '@shared/params';
 import { useOutput } from '../canvas/output';
 import { StockList } from './StockList';
+import { familyOf } from './FilmBoard';
 import { unsupportedReason } from './gate';
 
 export function LeftRail() {
@@ -185,10 +186,22 @@ function ClipboardSection() {
 function FilmSection() {
   const catalog = useSession((s) => s.catalog);
   const film = useSession((s) => s.sidecar.params.filmStock);
-  const rows = catalog.filmGroups().flatMap((g) => [
-    { id: '__g' + g.title, name: g.title === 'Positive' ? t('filmGroupPositive') : t('filmGroupNegative'), header: true },
-    ...g.films.map((f) => ({ id: f.id, name: f.name, cine: f.use === 'cine', cover: catalog.coverURL(f.id) })),
-  ]);
+  // The board's four families, in the board's order.
+  const families: [string, string][] = [
+    ['negative', tz('Colour negative', '彩色负片')],
+    ['positive', t('filmGroupPositive')],
+    ['mono', tz('Black & white', '黑白')],
+    ['cine', tz('Cinema', '电影胶片')],
+  ];
+  const rows = families.flatMap(([family, title]) => {
+    const films = catalog.films.filter((f) => familyOf(f) === family);
+    return films.length
+      ? [
+          { id: '__g' + family, name: title, header: true, count: films.length },
+          ...films.map((f) => ({ id: f.id, name: f.name, cine: f.use === 'cine', cover: catalog.coverURL(f.id), swatch: family })),
+        ]
+      : [];
+  });
   return (
     <Section
       id="film"
@@ -292,8 +305,8 @@ function PrintSection() {
     ...catalog.paperGroups().flatMap((g) =>
       g.papers.length
         ? [
-            { id: '__g' + g.title, name: g.title === 'Still' ? t('printGroupStill') : t('printGroupCine'), header: true },
-            ...g.papers.map((s) => ({ id: s.id, name: s.name, cine: s.use === 'cine', disabled: positive, reason: positiveReason })),
+            { id: '__g' + g.title, name: g.title === 'Still' ? t('printGroupStill') : t('printGroupCine'), header: true, count: g.papers.length },
+            ...g.papers.map((s) => ({ id: s.id, name: s.name, cine: s.use === 'cine', swatch: 'paper', disabled: positive, reason: positiveReason })),
           ]
         : [],
     ),

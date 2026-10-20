@@ -401,13 +401,29 @@ fn platform_dir() -> &'static str {
     }
 }
 
+/// The path as the host's C++ can open it. Tauri's `resource_dir` on Windows is
+/// a verbatim `\\?\C:\...` path, and the host joins file names onto it with
+/// `/`, which a verbatim path does not normalise: every open then fails
+/// ("cannot open \\?\...\engine/spektrafilm_constants.bin"). A local drive
+/// path loses the prefix; a verbatim UNC path becomes `\\server\share`.
+fn plain_path(p: &Path) -> String {
+    let s = p.display().to_string();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        s
+    }
+}
+
 fn launch_in_dir(dir: &Path, origin: &str) -> Option<Launch> {
     let program = dir.join(exe_name());
     if !program.is_file() {
         return None;
     }
     let resources = dir.join("engine");
-    let mut args = vec!["--resources".to_string(), resources.display().to_string()];
+    let mut args = vec!["--resources".to_string(), plain_path(&resources)];
     if let Ok(device) = std::env::var("SPEKTRALAB_HOST_DEVICE") {
         args.push("--device".into());
         args.push(device);
@@ -449,7 +465,7 @@ pub fn resolve_launch<R: Runtime>(app: &AppHandle<R>) -> Result<Launch, String> 
                 .resource_dir()
                 .map(|r| r.join("host").join("engine"))
                 .unwrap_or_else(|_| dir.join("engine"));
-            let mut args = vec!["--resources".to_string(), resources.display().to_string()];
+            let mut args = vec!["--resources".to_string(), plain_path(&resources)];
             if let Ok(device) = std::env::var("SPEKTRALAB_HOST_DEVICE") {
                 args.push("--device".into());
                 args.push(device);
@@ -469,4 +485,17 @@ pub fn resolve_launch<R: Runtime>(app: &AppHandle<R>) -> Result<Launch, String> 
         "SpektraLab could not find its engine host ({}). Reinstall the app, or set SPEKTRALAB_HOST_DIR.",
         exe_name()
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plain_path;
+    use std::path::Path;
+
+    #[test]
+    fn a_verbatim_resource_path_reaches_the_host_without_its_prefix() {
+        assert_eq!(plain_path(Path::new(r"\\?\C:\Program Files\SpektraLab\host\engine")), r"C:\Program Files\SpektraLab\host\engine");
+        assert_eq!(plain_path(Path::new(r"\\?\UNC\server\share\engine")), r"\\server\share\engine");
+        assert_eq!(plain_path(Path::new(r"C:\a b\engine")), r"C:\a b\engine");
+    }
 }

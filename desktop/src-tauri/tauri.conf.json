@@ -18,6 +18,8 @@
         "height": 960,
         "minWidth": 1100,
         "minHeight": 680,
+        "maximized": true,
+        "center": true,
         "theme": "Dark",
         "backgroundColor": "#2b2b2b",
         "dragDropEnabled": true

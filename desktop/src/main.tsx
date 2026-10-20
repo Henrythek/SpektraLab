@@ -16,6 +16,7 @@ function applySettings() {
   const s = settingsStore.getState();
   setLanguage(s.language);
   document.documentElement.style.setProperty('--ui-scale', String(s.interfaceScale / 100));
+  document.documentElement.dataset.theme = s.theme;
 }
 applySettings();
 

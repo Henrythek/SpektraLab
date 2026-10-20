@@ -85,7 +85,7 @@ export function Thumb({ path, geometry, height = CELL_H }: { path: string; geome
     if (plan.cropPolygon) {
       // Darken outside the crop: whole cell minus the crop polygon.
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.fillStyle = 'rgba(45,45,44,0.82)';
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--thumb-mask').trim() || 'rgba(25,25,25,0.82)';
       ctx.beginPath();
       ctx.rect(0, 0, plan.width, plan.height);
       const pts = plan.cropPolygon;

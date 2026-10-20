@@ -12,6 +12,7 @@ export interface Stock {
   pairedFilm?: string | null;
   cover?: string | null;
   formats?: string[] | null;
+  monochrome?: boolean;
 }
 
 export class StockCatalog {

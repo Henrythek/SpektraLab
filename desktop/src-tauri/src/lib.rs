@@ -217,7 +217,10 @@ pub fn run() {
         )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // The editor always opens maximized (tauri.conf.json); F11 toggles true
+        // full screen. Restoring a remembered window size would undo that, so
+        // the main window is not tracked.
+        .plugin(tauri_plugin_window_state::Builder::default().with_denylist(&["main"]).build())
         .setup(|app| {
             let handle = app.handle().clone();
             let sidecar_dir = app.path().app_data_dir()?.join("Sidecars");

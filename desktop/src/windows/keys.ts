@@ -83,6 +83,9 @@ export function shortcutTable(): Record<string, Action> {
     h: () => setTool('hand'),
     c: () => setTool(sessionStore.getState().tool === 'crop' ? 'select' : 'crop'),
     y: toggleCompare,
+    // The board of film stocks and back.
+    b: () => settingsStore.getState().set('workspace', settingsStore.getState().workspace === 'board' ? 'editor' : 'board'),
+    e: () => settingsStore.getState().set('workspace', 'editor'),
     ',': zoomToFit,
     '.': () => zoomTo(1),
     arrowleft: () => selectRelative(-1),
@@ -92,6 +95,7 @@ export function shortcutTable(): Record<string, Action> {
       if (s.exportOpen && !s.batchExporting) setPages({ exportOpen: false });
       else if (s.settingsOpen) setPages({ settingsOpen: false });
       else if (s.aboutOpen) setPages({ aboutOpen: false });
+      else if (settingsStore.getState().workspace === 'board') settingsStore.getState().set('workspace', 'editor');
       else if (s.tool === 'crop') setTool('select');
       else setOriginal(false);
     },
