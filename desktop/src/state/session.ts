@@ -729,6 +729,10 @@ async function loadOriginal(path: string, gen: number) {
 async function develop(path: string, gen: number) {
   if (get().hostState.phase !== 'ready') {
     set({ status: tz('Waiting for the engine…', '正在等待引擎…') });
+    // The core may have reported ready before this page was listening: ask it
+    // instead of waiting for an event that already went by. A ready answer
+    // re-opens the frame through `takeHostState`.
+    void syncHostState();
     return;
   }
   set({ developing: true });
@@ -973,10 +977,36 @@ function takeHostState(st: HostState) {
   }
 }
 
+/**
+ * Read the core's host state until it settles. The `host-state` event is the
+ * fast path, but an event emitted while the page was still subscribing is
+ * lost, and the page then sat on "starting" with a running engine ("Waiting
+ * for the engine…" for good, Windows, 2026-10-20). Polling the state closes
+ * that window; it stops at the first non-starting answer.
+ */
+let syncing = false;
+async function syncHostState() {
+  if (syncing) return;
+  syncing = true;
+  try {
+    for (let i = 0; i < 200; i++) {
+      const st = await host().state().catch(() => null);
+      if (st && st.phase !== 'starting') {
+        if (st.phase !== get().hostState.phase || (st.phase === 'ready' && lastReadyHello === null)) takeHostState(st);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  } finally {
+    syncing = false;
+  }
+}
+
 export async function boot() {
   host().onState(takeHostState);
   void loadCatalog().then((catalog) => set({ catalog }));
   takeHostState(await host().state());
+  void syncHostState();
   platform().onOpenPaths((paths) => void openPaths(paths));
   platform().onDrop((paths) => void openPaths(paths));
   const launch = await platform().takeLaunchPaths();
