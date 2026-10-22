@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ask, message, open, save } from '@tauri-apps/plugin-dialog';
 import { error as logError, info as logInfo, warn as logWarn } from '@tauri-apps/plugin-log';
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
+import { tz } from '../i18n';
 import type { AppPaths, FileEntry, Platform } from './index';
 
 export function tauriPlatform(): Platform {
@@ -31,10 +32,10 @@ export function tauriPlatform(): Platform {
         title,
         filters: [
           {
-            name: 'Photographs',
+            name: tz('Photographs', '照片'),
             extensions: ['nef', 'NEF', 'arw', 'ARW', 'cr2', 'CR2', 'cr3', 'CR3', 'raf', 'RAF', 'dng', 'DNG', 'orf', 'ORF', 'rw2', 'RW2', 'pef', 'PEF', 'srw', 'SRW', 'tif', 'tiff', 'TIF', 'TIFF', 'jpg', 'jpeg', 'JPG', 'JPEG', 'png', 'PNG'],
           },
-          { name: 'All files', extensions: ['*'] },
+          { name: tz('All files', '所有文件'), extensions: ['*'] },
         ],
       });
       if (Array.isArray(r)) return r;

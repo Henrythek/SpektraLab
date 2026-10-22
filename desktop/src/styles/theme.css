@@ -332,6 +332,10 @@ input {
 .icon-btn.dim {
   color: var(--dim);
 }
+.icon-btn.lang-btn {
+  font-size: 12px;
+  font-weight: 600;
+}
 .action-pill {
   height: 26px;
   border-radius: 8px;

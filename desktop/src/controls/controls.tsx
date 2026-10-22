@@ -13,6 +13,7 @@ import { clamp } from '@shared/params';
 import { settingsStore, useSettings } from '../state/settings';
 import { beginGesture } from '../state/session';
 import { Disclosure, Ellipsis, Reset, Spark } from './icons';
+import { tz } from '../i18n';
 
 // ------------------------------------------------------------------ Section
 
@@ -49,7 +50,7 @@ export function Section({ id, title, children, trailing, onReset, resetHelp, res
         {menu && menu.length > 0 && (
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
-              <button className="icon-btn" style={{ width: 22, height: 18 }} aria-label="More" disabled={!!unsupported}>
+              <button className="icon-btn" style={{ width: 22, height: 18 }} aria-label={tz('More', '更多')} disabled={!!unsupported}>
                 <Ellipsis />
               </button>
             </DropdownMenu.Trigger>

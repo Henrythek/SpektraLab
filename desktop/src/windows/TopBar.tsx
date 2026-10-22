@@ -7,7 +7,7 @@
 
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { BeforeAfter, BoardIcon, Crop, Cursor, EditorIcon, Export, Import, Moon, SidebarLeft, SidebarRight, Sun, ZoomIn, ZoomOut } from '../controls/icons';
-import { t, tz } from '../i18n';
+import { isChinese, t, tz } from '../i18n';
 import { currentFitZoom, setOriginal, setPages, setTool, solveNow, toggleCompare, useSession, zoomStep, zoomTo, zoomToFit } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
 import { openDialog } from './actions';
@@ -32,7 +32,7 @@ export function TopBar() {
   const fitZoom = useSession((s) => s.fitZoom);
   const pct = Math.round((view.fit ? fitZoom : view.zoom) * 100);
   const board = workspace === 'board';
-  const info = selection ? [native ? `${native.width}×${native.height}` : '', hello?.mock ? 'mock host' : 'sRGB'].filter(Boolean).join(' · ') : '';
+  const info = selection ? [native ? `${native.width}×${native.height}` : '', hello?.mock ? tz('mock host', '模拟主机') : 'sRGB'].filter(Boolean).join(' · ') : '';
   const setWorkspace = (w: 'editor' | 'board') => settingsStore.getState().set('workspace', w);
   return (
     <div className="topbar" data-testid="topbar">
@@ -130,6 +130,14 @@ export function TopBar() {
           {tz('Editor', '编辑')}
         </button>
       </div>
+      <button
+        className="icon-btn dim lang-btn"
+        title={isChinese() ? 'Switch to English' : '切换到简体中文'}
+        onClick={() => settingsStore.getState().set('language', isChinese() ? 'english' : 'simplifiedChinese')}
+        data-testid="language-toggle"
+      >
+        {isChinese() ? 'EN' : '中'}
+      </button>
       <button
         className="icon-btn dim"
         title={theme === 'dark' ? tz('Light appearance', '浅色外观') : tz('Dark appearance', '深色外观')}

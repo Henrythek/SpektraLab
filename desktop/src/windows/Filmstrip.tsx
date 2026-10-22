@@ -12,7 +12,7 @@ import { canvasGeometry, click, selectRelative, useSession } from '../state/sess
 import { thumbs } from '../state/thumbs';
 import { type Geometry, GEOMETRY_DEFAULT } from '@shared/geometry';
 import { thumbnailGeometryPlan } from '@shared/surfaces';
-import { t } from '../i18n';
+import { t, tz } from '../i18n';
 
 export function Filmstrip() {
   const frames = useSession((s) => s.frames);
@@ -32,7 +32,7 @@ export function Filmstrip() {
   }, [selection]);
   return (
     <div className="filmstrip" data-testid="filmstrip">
-      <button className="strip-chevron" onClick={() => selectRelative(-1)} disabled={batch} aria-label="Previous">
+      <button className="strip-chevron" onClick={() => selectRelative(-1)} disabled={batch} aria-label={tz('Previous', '上一张')}>
         <ChevronLeft />
       </button>
       <div className="filmstrip-cells" ref={strip}>
@@ -50,7 +50,7 @@ export function Filmstrip() {
           </div>
         ))}
       </div>
-      <button className="strip-chevron" onClick={() => selectRelative(1)} disabled={batch} aria-label="Next">
+      <button className="strip-chevron" onClick={() => selectRelative(1)} disabled={batch} aria-label={tz('Next', '下一张')}>
         <ChevronRight />
       </button>
     </div>
