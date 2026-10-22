@@ -5,6 +5,10 @@
 //
 // Click opens (and collapses the picked set); Ctrl/Cmd-click toggles one
 // frame in the set and leaves the canvas where it is.
+//
+// Only the cells on screen (and a little either side) ask for a thumbnail: a
+// folder of thousands of RAWs otherwise keeps the host busy for minutes and
+// every edit waits behind it.
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ChevronLeft, ChevronRight } from '../controls/icons';
@@ -26,6 +30,7 @@ export function Filmstrip() {
     () => thumbVersion(),
   );
   const strip = useRef<HTMLDivElement>(null);
+  const onScreen = useOnScreen(strip, frames);
   useEffect(() => {
     const el = strip.current?.querySelector('.thumb.open');
     el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -45,7 +50,7 @@ export function Filmstrip() {
             title={f.name}
             data-path={f.path}
           >
-            <Thumb path={f.path} geometry={f.path === selection ? live : (saved[f.path] ?? GEOMETRY_DEFAULT)} />
+            <Thumb path={f.path} geometry={f.path === selection ? live : (saved[f.path] ?? GEOMETRY_DEFAULT)} load={onScreen.has(f.path)} />
             <span className="thumb-name">{f.name}</span>
           </div>
         ))}
@@ -57,14 +62,43 @@ export function Filmstrip() {
   );
 }
 
+/** The paths of the cells in (or near) the strip's view. */
+function useOnScreen(strip: React.RefObject<HTMLDivElement | null>, frames: readonly unknown[]): ReadonlySet<string> {
+  const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const root = strip.current;
+    if (!root) return;
+    const io = new IntersectionObserver(
+      (entries) =>
+        setShown((prev) => {
+          const next = new Set(prev);
+          for (const e of entries) {
+            const p = (e.target as HTMLElement).dataset.path;
+            if (!p) continue;
+            if (e.isIntersecting) next.add(p);
+            else next.delete(p);
+          }
+          return next;
+        }),
+      { root, rootMargin: '0px 600px' },
+    );
+    for (const el of root.querySelectorAll('.thumb')) io.observe(el);
+    return () => io.disconnect();
+  }, [strip, frames]);
+  return shown;
+}
+
 let version = 0;
 thumbs.onChange(() => version++);
 const thumbVersion = () => version;
 
 const CELL_H = 104;
 
-export function Thumb({ path, geometry, height = CELL_H }: { path: string; geometry: Geometry; height?: number }) {
-  const url = thumbs.get(path);
+export function Thumb({ path, geometry, height = CELL_H, load = true }: { path: string; geometry: Geometry; height?: number; load?: boolean }) {
+  const url = thumbs.get(path, load);
+  useEffect(() => {
+    if (!load) thumbs.forget(path);
+  }, [path, load]);
   const ref = useRef<HTMLCanvasElement>(null);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   useEffect(() => {

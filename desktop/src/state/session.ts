@@ -155,6 +155,8 @@ export const sessionStore = createStore<SessionState>(() => INITIAL);
 export const useSession = <T>(sel: (s: SessionState) => T): T => useStore(sessionStore, sel);
 const get = () => sessionStore.getState();
 const set = (p: Partial<SessionState>) => sessionStore.setState(p);
+// Thumbnails wait while an edit is on its way: the host would run them first.
+sessionStore.subscribe((s) => thumbs.hold(s.rendering || s.developing || s.redecoding));
 
 // ---------------------------------------------------------------- film edge
 //

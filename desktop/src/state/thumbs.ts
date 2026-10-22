@@ -1,6 +1,11 @@
 // thumbs.ts — the filmstrip's pictures: the host's `thumbnail` (the embedded
 // preview) until the frame has been printed in this session, then the print.
 // Uncropped on purpose (ARCHITECTURE §7.7): each surface applies geometry.
+//
+// The host runs one request at a time, so every thumbnail in its queue is a
+// wait in front of the next edit (a RAW one is ~0.25 s). Hence: one at a
+// time, only for cells on screen (a folder can hold thousands), and none
+// started while an edit is on its way to the canvas.
 
 import { host } from '../host/client';
 import { rgbaToURL } from './frames';
@@ -10,7 +15,7 @@ interface Entry {
   print: boolean;
 }
 
-const MAX_CONCURRENT = 2;
+const MAX_CONCURRENT = 1;
 
 class ThumbCache {
   private map = new Map<string, Entry>();
@@ -19,16 +24,33 @@ class ThumbCache {
   private running = 0;
   private listeners = new Set<() => void>();
   private failed = new Set<string>();
+  private held = false;
 
-  get(path: string): string | null {
+  /** The picture for `path`; queues it when `load` (the cell is on screen) and there is none yet. */
+  get(path: string, load = true): string | null {
     const e = this.map.get(path);
     if (e) return e.url;
-    if (!this.pending.has(path) && !this.failed.has(path)) {
+    if (load && !this.pending.has(path) && !this.failed.has(path)) {
       this.pending.add(path);
       this.queue.push(path);
       this.pump();
     }
     return null;
+  }
+
+  /** The cell left the screen: a request not yet sent is dropped. */
+  forget(path: string) {
+    const i = this.queue.indexOf(path);
+    if (i < 0) return;
+    this.queue.splice(i, 1);
+    this.pending.delete(path);
+  }
+
+  /** While held (an edit is rendering) no new request goes to the host. */
+  hold(on: boolean) {
+    if (on === this.held) return;
+    this.held = on;
+    if (!on) this.pump();
   }
 
   setPrint(path: string, url: string) {
@@ -56,7 +78,7 @@ class ThumbCache {
   }
 
   private pump() {
-    while (this.running < MAX_CONCURRENT && this.queue.length) {
+    while (!this.held && this.running < MAX_CONCURRENT && this.queue.length) {
       const path = this.queue.shift()!;
       this.running++;
       void (async () => {
