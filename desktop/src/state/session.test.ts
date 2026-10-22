@@ -131,3 +131,18 @@ describe('the film edge', () => {
     await vi.waitFor(() => expect(calls.some((x) => x.startsWith('redecode:') && !x.includes('"frame"'))).toBe(true));
   });
 });
+
+describe('the busy indicator', () => {
+  it('is up from an edit until its render lands, and down after a failed one', async () => {
+    setParams((p) => ({ ...p, exposureCompensationEV: 0.5 }));
+    expect(sessionStore.getState().rendering).toBe(true);
+    await vi.waitFor(() => expect(calls).toContain('render:live'));
+    await vi.waitFor(() => expect(sessionStore.getState().rendering).toBe(false));
+
+    const { host } = await import('../host/client');
+    vi.mocked(host().render).mockRejectedValueOnce(new Error('gone'));
+    setParams((p) => ({ ...p, exposureCompensationEV: 1.5 }));
+    expect(sessionStore.getState().rendering).toBe(true);
+    await vi.waitFor(() => expect(sessionStore.getState().rendering).toBe(false));
+  });
+});

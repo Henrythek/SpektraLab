@@ -82,6 +82,8 @@ export interface SessionState {
   frameKind: string | null;
   /** A decode-setting change (white balance) is being re-decoded. */
   redecoding: boolean;
+  /** The canvas does not show the newest edit yet: a render is wanted or running. */
+  rendering: boolean;
   imageVersion: number;
   badge: Tier | null;
   developing: boolean;
@@ -126,6 +128,7 @@ const INITIAL: SessionState = {
   metadata: null,
   frameKind: null,
   redecoding: false,
+  rendering: false,
   imageVersion: 0,
   badge: null,
   developing: false,
@@ -203,12 +206,25 @@ export function setFilmEdge(patch: Partial<FilmParams['filmEdge']>) {
 
 let sentParams: FilmParams | null = null;
 let wantedGen = 0;
+/** The generation whose print is on the canvas; behind `wantedGen` while one is coming. */
+let shownGen = 0;
 let inFlight = false;
 let fullTimer: ReturnType<typeof setTimeout> | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let lastUndoAt = 0;
 let openGen = 0;
 const FULL_DELAY_MS = 400;
+
+function noteRendering() {
+  const rendering = shownGen !== wantedGen && !!get().engineSession;
+  if (rendering !== get().rendering) set({ rendering });
+}
+
+/** Nothing more is coming for what is wanted now (it landed, or it failed). */
+function noteShown(gen = wantedGen) {
+  shownGen = gen;
+  noteRendering();
+}
 
 function noteError(op: string, e: unknown) {
   const msg = e instanceof HostCallError ? `${e.message} (${e.code})` : e instanceof Error ? e.message : String(e);
@@ -240,6 +256,7 @@ function noteAsShot() {
 
 export async function requestPrint(): Promise<void> {
   wantedGen++;
+  noteRendering();
   if (fullTimer) clearTimeout(fullTimer);
   if (inFlight) return;
   const sid = get().engineSession;
@@ -268,9 +285,11 @@ export async function requestPrint(): Promise<void> {
       if (get().engineSession !== sid) return;
       frameImages.print = r;
       set({ imageVersion: get().imageVersion + 1, badge: 'preview', status: '' });
+      noteShown(gen);
       if (gen === wantedGen) break;
     }
   } catch (e) {
+    noteShown();
     noteError(tz('Render', '渲染'), e);
   } finally {
     inFlight = false;
@@ -427,6 +446,7 @@ function scheduleRedecode() {
   // Whatever full render was coming would show the old decode.
   if (fullTimer) clearTimeout(fullTimer);
   wantedGen++;
+  noteRendering();
   decodeTimer = setTimeout(() => void redecodeNow(), REDECODE_DELAY_MS);
 }
 
@@ -459,6 +479,7 @@ async function redecodeNow() {
     set({ nativeSize: sourceSize(r), metadata: r.metadata ?? get().metadata, status: '' });
     void requestPrint();
   } catch (e) {
+    noteShown();
     if (!decodeMoved) failedFrame = frameKey;
     noteError(decodeMoved ? tz('White balance', '白平衡') : tz('Film Edge', '片边'), e);
   } finally {
@@ -644,6 +665,7 @@ async function closeEngineSession() {
   if (fullTimer) clearTimeout(fullTimer);
   if (decodeTimer) clearTimeout(decodeTimer);
   decodeTimer = null;
+  noteShown();
   if (sid) await host().close(sid).catch(() => {});
 }
 

@@ -114,7 +114,13 @@ export function Canvas() {
   const selection = useSession((s) => s.selection);
   const batch = useSession((s) => s.batchExporting);
   const exportOpen = useSession((s) => s.exportOpen);
+  const developing = useSession((s) => s.developing);
+  const redecoding = useSession((s) => s.redecoding);
+  const rendering = useSession((s) => s.rendering);
+  const engineSession = useSession((s) => s.engineSession);
   const cropping = tool === 'crop';
+  // Held back a moment so a quick re-render does not blink.
+  const busy = useDelayed(!!selection && !glError && (developing || redecoding || rendering), 150);
 
   useEffect(() => {
     if (!canvas.current) return;
@@ -397,6 +403,19 @@ export function Canvas() {
           <span className="compare-handle" />
         </div>
       )}
+      {busy && (
+        // No print of this frame yet: centred; otherwise a pill that leaves the picture be.
+        <div className={'canvas-busy' + (badge ? '' : ' centred')} role="status" data-testid="canvas-busy">
+          <span className="busy-spinner" />
+          {!engineSession || (developing && !badge)
+            ? tz('Loading the photo…', '正在载入照片…')
+            : redecoding
+              ? tz('Decoding…', '正在解码…')
+              : rendering
+                ? tz('Rendering the colours…', '正在渲染色彩…')
+                : tz('Solving…', '正在配光…')}
+        </div>
+      )}
       <div className="canvas-corner">
         {histogram && <HistogramOverlay h={histogram} />}
         {badge && selection && (
@@ -407,6 +426,20 @@ export function Canvas() {
       </div>
     </div>
   );
+}
+
+/** `on`, once it has stayed on for `ms`; off at once. */
+function useDelayed(on: boolean, ms: number): boolean {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!on) {
+      setShown(false);
+      return;
+    }
+    const t = setTimeout(() => setShown(true), ms);
+    return () => clearTimeout(t);
+  }, [on, ms]);
+  return on && shown;
 }
 
 export function isTyping(t: EventTarget | null): boolean {
