@@ -83,14 +83,15 @@ interface LatitudeReply {
 
 function LatitudeSection() {
   const sid = useSession((s) => s.engineSession);
-  const badge = useSession((s) => s.badge);
+  // Asked once the canvas has caught up, so it never queues ahead of a render.
+  const settled = useSession((s) => !!s.badge && !s.rendering);
   const film = useSession((s) => s.sidecar.params.filmStock);
   const paper = useSession((s) => s.sidecar.params.printStock);
   const catalog = useSession((s) => s.catalog);
   const [reply, setReply] = useState<LatitudeReply | null>(null);
   const [why, setWhy] = useState<string | null>(null);
   useEffect(() => {
-    if (!sid || badge !== 'full') return;
+    if (!sid || !settled) return;
     let live = true;
     const t0 = setTimeout(() => {
       host()
@@ -111,7 +112,7 @@ function LatitudeSection() {
       live = false;
       clearTimeout(t0);
     };
-  }, [sid, badge, film, paper]);
+  }, [sid, settled, film, paper]);
   const name = (id: string) => catalog.stock(id)?.name.replace(/^(Kodak|Fujifilm) (Professional )?/, '') ?? id;
   return (
     <Section id="latitude" title={t('sectionLatitude')} trailing={`${name(film)} · ${name(paper)}`} unsupported={why}>

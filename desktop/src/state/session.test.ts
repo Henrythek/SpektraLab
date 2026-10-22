@@ -30,7 +30,7 @@ vi.mock('../platform', () => ({
   dirName: (p: string) => p,
 }));
 
-import { recomputeFilmFormat, sessionStore, setDecode, setFilmEdge, setGeometry, setParams, setTool, undo } from './session';
+import { recomputeFilmFormat, sessionStore, setDecode, setFilmEdge, setGeometry, setParams, setTool, undo, zoomTo } from './session';
 import type { HelloResult } from '@shared/protocol';
 import { settingsStore } from './settings';
 import { newSidecar } from '@shared/sidecar';
@@ -144,5 +144,18 @@ describe('the busy indicator', () => {
     setParams((p) => ({ ...p, exposureCompensationEV: 1.5 }));
     expect(sessionStore.getState().rendering).toBe(true);
     await vi.waitFor(() => expect(sessionStore.getState().rendering).toBe(false));
+  });
+});
+
+describe('the full-resolution render', () => {
+  it('is skipped while the view fits the preview, and follows a zoom past it', async () => {
+    // 6000 px shown at a quarter: 1500 device px, inside the 2560 px preview
+    sessionStore.setState({ view: { fit: true, zoom: 1, cx: 0.5, cy: 0.5 }, fitZoom: 0.25 });
+    setParams((p) => ({ ...p, exposureCompensationEV: 0.25 }));
+    await vi.waitFor(() => expect(sessionStore.getState().rendering).toBe(false));
+    await new Promise((r) => setTimeout(r, 900));
+    expect(calls).not.toContain('render:full');
+    zoomTo(1);
+    await vi.waitFor(() => expect(calls).toContain('render:full'), { timeout: 2000 });
   });
 });

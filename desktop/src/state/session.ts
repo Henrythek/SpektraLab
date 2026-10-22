@@ -202,7 +202,11 @@ export function setFilmEdge(patch: Partial<FilmParams['filmEdge']>) {
 // "Sent vs wanted" (`RenderScheduler.swift`): one render in flight; edits
 // made while it runs only move what is wanted, and the loop catches up with
 // the newest state when it lands. The original-resolution render starts
-// 400 ms after the last edit and is dropped if anything moved meanwhile.
+// 700 ms after the last edit, only while the view shows more pixels than the
+// preview has, and is dropped if anything moved meanwhile. It is not free: a
+// 33 MP frame is ~2 s on the engine plus a 130 MB transfer, the host runs one
+// request at a time and cannot stop it midway, so an edit made while it runs
+// waits for it (Windows, 2026-10-22: "switching stocks does nothing").
 
 let sentParams: FilmParams | null = null;
 let wantedGen = 0;
@@ -213,7 +217,7 @@ let fullTimer: ReturnType<typeof setTimeout> | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let lastUndoAt = 0;
 let openGen = 0;
-const FULL_DELAY_MS = 400;
+const FULL_DELAY_MS = 700;
 
 function noteRendering() {
   const rendering = shownGen !== wantedGen && !!get().engineSession;
@@ -234,6 +238,20 @@ function noteError(op: string, e: unknown) {
 
 function previewEdge() {
   return settingsStore.getState().previewLongEdge;
+}
+
+/** The view shows the frame larger than the preview print: only then does the full render add anything. */
+export function fullNeeded(s: SessionState = get()): boolean {
+  const n = s.nativeSize;
+  if (!n) return false;
+  const zoom = s.view.fit ? s.fitZoom : s.view.zoom;
+  return Math.max(n.width, n.height) * zoom > previewEdge() * 1.05;
+}
+
+/** The view moved: a full render may have become worth it (or still is). */
+function noteViewNeed() {
+  const s = get();
+  if (s.badge === 'preview' && !inFlight && shownGen === wantedGen && fullNeeded(s)) scheduleFull();
 }
 
 function wireParams(p: FilmParams) {
@@ -276,13 +294,16 @@ export async function requestPrint(): Promise<void> {
       if (s.engineSession !== sid) return;
       const want = engineParams(s);
       const d = sentParams ? paramsDelta(want, sentParams, s.gate) : { delta: wireParams(want), layers: new Set(['shoot']) };
+      const t0 = performance.now();
       if (Object.keys(d.delta).length) {
         await host().setParams(sid, d.delta);
         sentParams = want;
       }
+      const t1 = performance.now();
       const reprint = d.layers.size === 1 && d.layers.has('print');
       const r = await host().render(sid, 'live', { reprint });
       if (get().engineSession !== sid) return;
+      platform().log('info', `session: live ${r.width}x${r.height} · set_params ${Math.round(t1 - t0)} · render ${Math.round(r.ms)} ms`);
       frameImages.print = r;
       set({ imageVersion: get().imageVersion + 1, badge: 'preview', status: '' });
       noteShown(gen);
@@ -313,6 +334,11 @@ async function renderFull(gen: number) {
   // A frame no larger than the preview edge is already at its own size.
   if (native && Math.max(native.width, native.height) <= previewEdge()) {
     set({ badge: 'full' });
+    await refreshThumb();
+    return;
+  }
+  // Fitted to the window the preview already has every pixel the canvas shows.
+  if (!fullNeeded(s)) {
     await refreshThumb();
     return;
   }
@@ -903,6 +929,7 @@ export const ZOOM_STEPS = [0.0625, 0.125, 0.25, 0.333, 0.5, 0.667, 1, 2, 3, 4, 8
 
 export function setView(v: Partial<ViewState>) {
   set({ view: { ...get().view, ...v } });
+  noteViewNeed();
 }
 export function zoomToFit() {
   setView({ fit: true, cx: 0.5, cy: 0.5 });
@@ -923,7 +950,10 @@ export function noteCanvasPx(width: number, height: number) {
 }
 export function noteFitZoom(z: number) {
   currentFitZoom = z;
-  if (Math.abs(get().fitZoom - z) > 1e-4) set({ fitZoom: z });
+  if (Math.abs(get().fitZoom - z) > 1e-4) {
+    set({ fitZoom: z });
+    if (get().view.fit) noteViewNeed();
+  }
 }
 
 export function setTool(tool: Tool) {

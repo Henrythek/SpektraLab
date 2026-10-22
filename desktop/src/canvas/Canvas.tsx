@@ -419,7 +419,7 @@ export function Canvas() {
       <div className="canvas-corner">
         {histogram && <HistogramOverlay h={histogram} />}
         {badge && selection && (
-          <span className={'tier-badge ' + badge} data-testid="tier-badge" title={badge === 'full' ? tz('The frame at its own resolution', '照片自身分辨率') : tz('Preview resolution — the frame’s own is on its way', '预览分辨率——全尺寸正在渲染')}>
+          <span className={'tier-badge ' + badge} data-testid="tier-badge" title={badge === 'full' ? tz('The frame at its own resolution', '照片自身分辨率') : tz('Preview resolution — zoom in past it and the frame’s own follows', '预览分辨率——放大超过它时会渲染全尺寸')}>
             {badge === 'full' ? 'full' : 'preview'}
           </span>
         )}
