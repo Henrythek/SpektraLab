@@ -137,6 +137,15 @@ if(NOT APPLE)
         add_custom_target(spektralab_vulkan_resources
             COMMAND "${CMAKE_COMMAND}" -E copy_directory
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources" "${vulkan_resource_dir}"
+            # The product's own black-and-white profiles go in beside
+            # spektrafilm's, as build.sh does for the Mac app: the engine opens
+            # a stock from one `profiles/` directory, and every desktop host is
+            # staged from this one (stage-host.sh, the Windows installer).
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/profiles" "${vulkan_resource_dir}/profiles"
+            COMMAND "${CMAKE_COMMAND}" -E copy
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/NOTICE.md"
+                    "${vulkan_resource_dir}/PRODUCT_PROFILES_NOTICE.md"
             DEPENDS ${vulkan_spirv}
             VERBATIM)
 
