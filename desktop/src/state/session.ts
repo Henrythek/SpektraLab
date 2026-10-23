@@ -29,6 +29,7 @@ import {
 } from '@shared/params';
 import { type Adjustments, ADJUSTMENTS_DEFAULT } from '@shared/adjustments';
 import { type Geometry, GEOMETRY_DEFAULT, outputSize } from '@shared/geometry';
+import { canvasGeometry as canvasGeometryOf, filmShows, fitCropToGate, frameWire, resolveFilmEdge } from '@shared/filmEdge';
 import { type DecodeSettings, type Sidecar, decodeSidecar, encodeSidecar, newSidecar } from '@shared/sidecar';
 import { decodeWire, isRawPath, modeOf } from '@shared/whiteBalance';
 import { type ClipboardGroup, type SettingsClip, CLIPBOARD_GROUPS, applyClip, clipChanges } from '@shared/clipboard';
@@ -152,6 +153,49 @@ export const useSession = <T>(sel: (s: SessionState) => T): T => useStore(sessio
 const get = () => sessionStore.getState();
 const set = (p: Partial<SessionState>) => sessionStore.setState(p);
 
+// ---------------------------------------------------------------- film edge
+//
+// While the film edge shows, the engine's frame is the decode cut by the crop
+// (the host's `frame`), the print is the whole film and every surface draws
+// it with no geometry of its own (`shared/filmEdge.ts`).
+
+/** The film edge shows on this frame. */
+export const filmCanvas = (s: SessionState = get()) => filmShows(s.sidecar.params, s.gate.overscan);
+/** The geometry the canvas, export and thumbnails apply to the print. */
+export const canvasGeometry = (s: SessionState = get()) => canvasGeometryOf(s.sidecar.geometry, filmCanvas(s));
+
+/** The host `frame` the engine should hold: the crop while the film shows, else none. */
+function wantedFrame(s: SessionState = get()) {
+  return filmCanvas(s) ? frameWire(s.sidecar.geometry) : null;
+}
+
+/** The params as the engine gets them: the film edge's text, f-number and date filled in. */
+function engineParams(s: SessionState = get()): FilmParams {
+  return resolveFilmEdge(s.sidecar.params, s.catalog.stock(s.sidecar.params.filmStock)?.name, s.metadata);
+}
+
+/**
+ * Film Edge on/off, format and view: the one door, because turning it on
+ * (or moving to a gate of another shape) holds the crop at the gate's shape.
+ */
+export function setFilmEdge(patch: Partial<FilmParams['filmEdge']>) {
+  const s = get();
+  if (s.batchExporting) return;
+  const params = { ...s.sidecar.params, filmEdge: { ...s.sidecar.params.filmEdge, ...patch } };
+  if (jsonEqual(params, s.sidecar.params)) return;
+  // The params and the crop held to the new gate land as one edit, so the
+  // engine never sees the new gate with the old cut (it refuses that shape).
+  const film = filmShows(params, s.gate.overscan);
+  const geometry = film && s.nativeSize ? fitCropToGate(s.sidecar.geometry, s.nativeSize, params.filmEdge.format) : s.sidecar.geometry;
+  pushUndo();
+  const state = s.sidecar.state === 'processed' ? 'stale' : s.sidecar.state;
+  if (jsonEqual(geometry, s.sidecar.geometry)) set({ sidecar: { ...s.sidecar, params, state } });
+  else set({ sidecar: { ...s.sidecar, params, geometry, state }, savedGeometry: s.selection ? { ...s.savedGeometry, [s.selection]: geometry } : s.savedGeometry });
+  scheduleSave();
+  if (film && get().tool === 'crop') set({ tool: 'select' });
+  void requestPrint();
+}
+
 // ------------------------------------------------------------ the scheduler
 //
 // "Sent vs wanted" (`RenderScheduler.swift`): one render in flight; edits
@@ -202,13 +246,20 @@ export async function requestPrint(): Promise<void> {
   if (inFlight) return;
   const sid = get().engineSession;
   if (!sid) return;
+  // The engine holds another frame than the film edge wants: cut it first
+  // (`redecodeNow` comes back here). A cut that failed is not retried in a loop.
+  const frameKey = JSON.stringify(wantedFrame());
+  if (frameKey !== sentFrame && frameKey !== failedFrame && hostRedecodes(get().hello?.methods)) {
+    scheduleRedecode();
+    return;
+  }
   inFlight = true;
   try {
     for (;;) {
       const gen = wantedGen;
       const s = get();
       if (s.engineSession !== sid) return;
-      const want = s.sidecar.params;
+      const want = engineParams(s);
       const d = sentParams ? paramsDelta(want, sentParams, s.gate) : { delta: wireParams(want), layers: new Set(['shoot']) };
       if (Object.keys(d.delta).length) {
         await host().setParams(sid, d.delta);
@@ -338,6 +389,8 @@ export function setGeometry(fn: (g: Geometry) => Geometry, opts: { coalesce?: bo
   set({ sidecar: { ...s.sidecar, geometry: next }, savedGeometry: s.selection ? { ...s.savedGeometry, [s.selection]: next } : s.savedGeometry });
   scheduleSave();
   if (settingsStore.getState().recalculateEffectsAfterCrop) recomputeFilmFormat();
+  // With the film edge the crop is in the negative: a new one is a new cut.
+  if (filmCanvas()) void requestPrint();
 }
 
 /**
@@ -364,6 +417,11 @@ export function hostRedecodes(methods: readonly string[] | undefined): boolean {
 let decodeTimer: ReturnType<typeof setTimeout> | null = null;
 /** The wire decode the engine session was last decoded with. */
 let sentDecode: string | null = null;
+/** The `frame` the engine session was last cut with (JSON; "null" for none: the whole decode). */
+const NO_FRAME = JSON.stringify(null);
+let sentFrame: string = NO_FRAME;
+/** A cut the host refused, so `requestPrint` does not ask for it again and again. */
+let failedFrame: string | null = null;
 const REDECODE_DELAY_MS = 350;
 
 function scheduleRedecode() {
@@ -381,22 +439,38 @@ async function redecodeNow() {
   if (!sid || !s.selection) return;
   const wire = decodeWire(s.sidecar.decode, isRawFrame());
   const key = JSON.stringify(wire);
-  if (!wire || key === sentDecode || !hostRedecodes(s.hello?.methods)) {
+  const frame = wantedFrame(s);
+  const frameKey = JSON.stringify(frame);
+  const decodeMoved = !!wire && key !== sentDecode;
+  if ((!decodeMoved && frameKey === sentFrame) || !hostRedecodes(s.hello?.methods)) {
     void requestPrint();
     return;
   }
-  set({ redecoding: true, status: tz('Decoding with the new white balance…', '正在以新的白平衡解码…') });
+  set({
+    redecoding: true,
+    status: decodeMoved
+      ? tz('Decoding with the new white balance…', '正在以新的白平衡解码…')
+      : tz('Cutting the frame for the film edge…', '正在为片边裁切画幅…'),
+  });
   try {
-    const r = await host().redecode(sid, wire);
+    const r = await host().redecode(sid, wire, frame);
     if (get().engineSession !== sid) return;
     sentDecode = key;
-    set({ nativeSize: { width: r.width, height: r.height }, metadata: r.metadata ?? get().metadata, status: '' });
+    sentFrame = frameKey;
+    failedFrame = null;
+    set({ nativeSize: sourceSize(r), metadata: r.metadata ?? get().metadata, status: '' });
     void requestPrint();
   } catch (e) {
-    noteError(tz('White balance', '白平衡'), e);
+    if (!decodeMoved) failedFrame = frameKey;
+    noteError(decodeMoved ? tz('White balance', '白平衡') : tz('Film Edge', '片边'), e);
   } finally {
     set({ redecoding: false });
   }
+}
+
+/** The decode's own size (the host's `source_*` when `frame` cut it). */
+function sourceSize(r: { width: number; height: number; source_width?: number; source_height?: number }) {
+  return { width: r.source_width ?? r.width, height: r.source_height ?? r.height };
 }
 
 function isRawFrame(): boolean {
@@ -566,6 +640,8 @@ async function closeEngineSession() {
   set({ engineSession: null });
   sentParams = null;
   sentDecode = null;
+  sentFrame = NO_FRAME;
+  failedFrame = null;
   wantedGen++;
   if (fullTimer) clearTimeout(fullTimer);
   if (decodeTimer) clearTimeout(decodeTimer);
@@ -660,15 +736,18 @@ async function develop(path: string, gen: number) {
   set({ developing: true });
   try {
     const t0 = performance.now();
-    const params = get().sidecar.params;
+    const params = engineParams();
     const decode = decodeWire(get().sidecar.decode, isRawPath(path));
+    // Without the decode's size the crop cannot be held at the gate yet: the
+    // frame opens whole and `requestPrint` cuts it once the size is known.
+    const frame = wantedFrame();
     let r;
     try {
-      r = await host().open(path, wireParams(params), decode);
+      r = await host().open(path, wireParams(params), decode, frame);
     } catch (e) {
       // A host without R2 refuses the decode key: open with the camera's own.
       if (!(decode && e instanceof HostCallError && e.code === 'unsupported')) throw e;
-      r = await host().open(path, wireParams(params));
+      r = await host().open(path, wireParams(params), null, frame);
     }
     if (gen !== openGen) {
       void host().close(r.session).catch(() => {});
@@ -676,7 +755,14 @@ async function develop(path: string, gen: number) {
     }
     sentParams = params;
     sentDecode = JSON.stringify(decode);
-    set({ engineSession: r.session, nativeSize: { width: r.width, height: r.height }, metadata: r.metadata, frameKind: r.kind ?? (isRawPath(path) ? 'raw' : null) });
+    sentFrame = JSON.stringify(frame);
+    set({ engineSession: r.session, nativeSize: sourceSize(r), metadata: r.metadata, frameKind: r.kind ?? (isRawPath(path) ? 'raw' : null) });
+    // A sidecar saved before the crop was held at the gate (or by another app).
+    if (filmCanvas()) {
+      const s = get();
+      const g = fitCropToGate(s.sidecar.geometry, s.nativeSize!, s.sidecar.params.filmEdge.format);
+      if (!jsonEqual(g, s.sidecar.geometry)) set({ sidecar: { ...s.sidecar, geometry: g } });
+    }
     noteAsShot();
     platform().log(
       'info',
@@ -817,12 +903,21 @@ export function noteFitZoom(z: number) {
 }
 
 export function setTool(tool: Tool) {
+  // The crop is in the negative while the film shows (held at the gate);
+  // the canvas shows the film, not the picture to frame.
+  if (tool === 'crop' && filmCanvas()) {
+    set({ status: tz('Turn Film Edge off to reframe; the crop keeps the gate’s shape.', '关闭片边后再调整构图；裁切会保持片门比例。') });
+    return;
+  }
   set({ tool });
 }
 export function setOriginal(on: boolean) {
+  // The original is the bare picture, the print the film around it: they do not line up.
+  if (on && filmCanvas()) return;
   set({ showingOriginal: on });
 }
 export function toggleCompare() {
+  if (!get().comparing && filmCanvas()) return;
   set({ comparing: !get().comparing });
 }
 export function setComparePosition(p: number) {

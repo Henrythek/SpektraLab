@@ -11,6 +11,7 @@
 // the macOS app reaches it -- the host is a client of the engine, not a
 // second implementation of any of it.
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -449,6 +450,7 @@ DecodeOptions decode_options(const Json& decode) {
 
 struct Decoded {
     FloatImage frame;
+    uint32_t source_width = 0, source_height = 0;
     Probe probe;
     double decode_ms = 0;
 };
@@ -465,7 +467,62 @@ Decoded decode_frame(const fs::path& path, const DecodeOptions& options) {
         throw HostError{"decode_failed", error};
     }
     d.decode_ms = ms_since(t0);
+    d.source_width = d.frame.width;
+    d.source_height = d.frame.height;
     return d;
+}
+
+// The film edge (API-SPEC §13): the engine takes the frame it is given as the
+// gate, so the app's crop has to be in the negative. `frame` is the app's
+// geometry (desktop/src/shared/geometry.ts, the one map `sourcePoint`):
+// {crop: {x, y, width, height} normalised to the decode, angle (degrees),
+// quarter_turns, flip_h, flip_v}. The decode is resampled through it,
+// bilinear at pixel centres, edges clamped; an identity frame is a no-op.
+void cut_frame(FloatImage& img, const Json& frame) {
+    if (frame.is_null()) return;
+    if (!frame.is_object()) throw HostError{"bad_request", "frame must be an object"};
+    const Json& c = frame.at("crop");
+    const double cx = c.at("x").as_double(0), cy = c.at("y").as_double(0);
+    const double cw = c.at("width").as_double(1), ch = c.at("height").as_double(1);
+    const double angle = frame.at("angle").as_double(0);
+    const int turns = ((int(std::lround(frame.at("quarter_turns").as_double(0))) % 4) + 4) % 4;
+    const bool flip_h = frame.at("flip_h").as_bool(false), flip_v = frame.at("flip_v").as_bool(false);
+    if (!(cw > 0 && ch > 0 && cw <= 1.000001 && ch <= 1.000001 && std::isfinite(cx) && std::isfinite(cy) &&
+          std::isfinite(angle)))
+        throw HostError{"bad_request", "frame.crop must be a rectangle inside the picture"};
+    if (cx == 0 && cy == 0 && cw >= 1 && ch >= 1 && angle == 0 && turns == 0 && !flip_h && !flip_v) return;
+    const double W = std::max<uint32_t>(img.width, 1), H = std::max<uint32_t>(img.height, 1);
+    const uint32_t ow0 = uint32_t(std::max(1.0, std::round(cw * W))), oh0 = uint32_t(std::max(1.0, std::round(ch * H)));
+    const uint32_t ow = turns % 2 ? oh0 : ow0, oh = turns % 2 ? ow0 : oh0;
+    const double a = angle * 3.14159265358979323846 / 180.0, ca = std::cos(a), sa = std::sin(a);
+    const double ccx = cx + cw / 2, ccy = cy + ch / 2;
+    FloatImage out;
+    out.width = ow; out.height = oh;
+    out.rgb.resize(size_t(ow) * oh * 3);
+    for (uint32_t y = 0; y < oh; ++y)
+        for (uint32_t x = 0; x < ow; ++x) {
+            double ux = (x + 0.5) / ow, uy = (y + 0.5) / oh;
+            if (flip_h) ux = 1 - ux;
+            if (flip_v) uy = 1 - uy;
+            double vx = ux, vy = uy;
+            if (turns == 1) { vx = uy; vy = 1 - ux; }
+            else if (turns == 2) { vx = 1 - ux; vy = 1 - uy; }
+            else if (turns == 3) { vx = 1 - uy; vy = ux; }
+            const double px = (vx - 0.5) * cw * W, py = (vy - 0.5) * ch * H;
+            const double sx = (ccx + (px * ca - py * sa) / W) * W - 0.5;
+            const double sy = (ccy + (px * sa + py * ca) / H) * H - 0.5;
+            const double fx = std::clamp(sx, 0.0, W - 1), fy = std::clamp(sy, 0.0, H - 1);
+            const uint32_t x0 = uint32_t(fx), y0 = uint32_t(fy);
+            const uint32_t x1 = std::min(x0 + 1, img.width - 1), y1 = std::min(y0 + 1, img.height - 1);
+            const double ax = fx - x0, ay = fy - y0;
+            for (int k = 0; k < 3; ++k) {
+                auto at = [&](uint32_t xx, uint32_t yy) { return double(img.rgb[(size_t(yy) * img.width + xx) * 3 + k]); };
+                const double top = at(x0, y0) * (1 - ax) + at(x1, y0) * ax;
+                const double bot = at(x0, y1) * (1 - ax) + at(x1, y1) * ax;
+                out.rgb[(size_t(y) * ow + x) * 3 + k] = float(top * (1 - ay) + bot * ay);
+            }
+        }
+    img = std::move(out);
 }
 
 spk_session* engine_open(const FloatImage& frame, const std::string& delta, Json& opened, double& open_ms) {
@@ -487,6 +544,9 @@ Json open_reply(const Session& s, const Decoded& d, const Json& opened, double o
     r.set("session", str(s.id));
     r.set("width", number(d.frame.width));
     r.set("height", number(d.frame.height));
+    // The decode before `frame` cut it (equal to width/height without one).
+    r.set("source_width", number(d.source_width));
+    r.set("source_height", number(d.source_height));
     r.set("kind", str(kind_name(d.probe.kind)));
     r.set("metadata", metadata_json(d.probe.metadata));
     r.set("params", opened.at("params"));
@@ -504,6 +564,7 @@ Json m_open(const Request& q) {
     const fs::path path = utf8_path(require_string(q.params, "path"));
     const DecodeOptions options = decode_options(q.params.at("decode"));
     Decoded d = decode_frame(path, options);
+    cut_frame(d.frame, q.params.at("frame"));
     std::string delta;
     const Json& params = q.params.at("params");
     if (params.is_object()) delta = params.dump();
@@ -536,6 +597,7 @@ Json m_redecode(const Request& q) {
     auto s = find_session(q.params);
     const DecodeOptions options = decode_options(q.params.at("decode"));
     Decoded d = decode_frame(utf8_path(s->path), options);
+    cut_frame(d.frame, q.params.at("frame"));
     char* current = nullptr;
     const spk_status st = spk_get_params(s->handle, &current);
     if (st != SPK_OK) engine_fail(st, "get_params");

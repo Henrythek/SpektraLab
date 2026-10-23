@@ -1,4 +1,5 @@
-// Exercise Windows feature refusals through the exported DLL boundary.
+// Exercise Windows feature refusals through the exported DLL boundary, and the
+// film edge / date imprint that were ported (they render instead).
 #include "spektrafilm/spk_engine.h"
 
 #include <array>
@@ -43,6 +44,13 @@ int main(int argc, char** argv) {
         const char* capabilities = spk_capabilities(engine.get());
         require(capabilities && std::string(capabilities).find("unsupported_features") != std::string::npos,
                 "Windows capabilities must disclose unported effects");
+        {
+            const std::string caps(capabilities);
+            const size_t list = caps.find("unsupported_features");
+            const std::string tail = caps.substr(list, caps.find(']', list) - list);
+            require(tail.find("overscan") == std::string::npos && tail.find("date_imprint") == std::string::npos,
+                    "the ported film edge / date imprint are still listed as unsupported: " + tail);
+        }
 
         std::vector<float> pixels(32 * 16 * 3);
         for (size_t i = 0; i < pixels.size(); ++i) pixels[i] = 0.025f + float(i % 31) * 0.025f;
@@ -54,12 +62,10 @@ int main(int argc, char** argv) {
         const std::string before = params(session.get());
 
         struct Feature { const char* key; const char* label; };
-        const std::array<Feature, 5> features{{
+        const std::array<Feature, 3> features{{
             {"digital_intermediate", "digital intermediate"},
             {"scene_latitude_active", "scene latitude mapping"},
             {"contrast_mask_active", "contrast mask"},
-            {"overscan_active", "overscan"},
-            {"date_imprint_active", "date imprint"},
         }};
         for (const Feature& feature : features) {
             // Include a supported change to catch partial application before
@@ -111,7 +117,41 @@ int main(int argc, char** argv) {
         require(latitude_status == SPK_OK && latitude_valid, "latitude analysis failed: " + latitude_error);
         require(params(session.get()) == before, "latitude analysis mutated the session");
         render(engine.get(), session.get());
-        std::cout << "Windows feature boundaries passed (5 flags, DI refusal, mask off, latitude analysis)\n";
+
+        // Ported: the film edge returns the whole film canvas -- larger than
+        // the frame, with a gate geometry -- and the date alone keeps the frame.
+        // The frame is the 135 gate's shape (36.25 x 24.3), as the app crops it.
+        std::vector<float> gate(145 * 97 * 3);
+        for (size_t i = 0; i < gate.size(); ++i) gate[i] = 0.02f + float(i % 47) * 0.01f;
+        const spk_image gate_input{gate.data(), 145, 97, 3};
+        std::unique_ptr<spk_session, decltype(&spk_session_release)> film(
+            spk_open(engine.get(), &gate_input, nullptr, nullptr), spk_session_release);
+        require(bool(film), std::string("gate-shaped open failed: ") + spk_last_error(engine.get()));
+        auto render_size = [&](const char* delta, uint32_t& w, uint32_t& h) {
+            require(spk_set_params(film.get(), delta, nullptr) == SPK_OK,
+                    std::string("ported effect refused: ") + delta + ": " + spk_last_error(engine.get()));
+            spk_result result{};
+            const spk_status status = spk_render(film.get(), "full", &result);
+            const std::string error = spk_last_error(engine.get());
+            w = result.width; h = result.height;
+            const bool ok = status == SPK_OK && result.rgba16;
+            spk_result_free(&result);
+            require(ok, std::string("ported effect did not render: ") + delta + ": " + error);
+        };
+        uint32_t w = 0, h = 0;
+        render_size("{\"overscan_active\":true,\"overscan_format\":\"135\"}", w, h);
+        require(w > 145 && h > 97, "the film edge did not grow the canvas: " + std::to_string(w) + "x" + std::to_string(h));
+        char* geometry = nullptr;
+        require(spk_overscan_geometry(film.get(), &geometry) == SPK_OK && geometry &&
+                std::string(geometry).find("\"valid\":true") != std::string::npos,
+                "overscan geometry is not valid with the film edge on");
+        spk_string_free(geometry);
+        render_size("{\"overscan_active\":true,\"date_imprint_active\":true,\"date_imprint_text\":\"'26 10 19\"}", w, h);
+        render_size("{\"overscan_active\":false}", w, h);
+        require(w == 145 && h == 97, "the date alone changed the frame size");
+        render_size("{\"date_imprint_active\":false}", w, h);
+        std::cout << "Windows feature boundaries passed (3 refusals, DI refusal, mask off, latitude analysis, "
+                     "film edge and date render)\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

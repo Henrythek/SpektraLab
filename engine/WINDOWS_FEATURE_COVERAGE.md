@@ -40,7 +40,8 @@ parity remains unverified.
 | Qt Quick editor | Shared native host, three-panel layout and single-photo strip | Full RAW/controller/offscreen scene regression; physical 100% samples, repeated texture updates and failure recovery; live display validation pending |
 | Window drawing | sRGB-labelled bitmap and requested GDI ICM | Offscreen handlers/layout and 1:1 BGR pixel checks; visible gestures, calibrated monitor ICC, HDR and multi-monitor acceptance remain pending |
 | Scene latitude analysis | Existing pipeline and explicit probe readback | Real C ABI analysis test; applying scene latitude mapping remains unsupported |
-| New upstream effects | Explicit Windows capability and request rejection | Cineon DI, scene latitude mapping, contrast mask, film edge and date imprint are refused before session mutation; the old normalised-density DI tap remains available |
+| Film edge and date imprint | `overscan.cpp` on Vulkan (`spk_overscan_*.comp`), edge print and date drawn by `edge_raster.cpp` with TeX Gyre Heros | Every 135/120 format's layout is the engine's own; renders and gate geometry checked on lavapipe (`spk_windows_feature_boundaries`, host smoke). Glyph shapes are Heros, not Helvetica Neue; no Mac whole-image comparison yet |
+| New upstream effects | Explicit Windows capability and request rejection | Cineon DI, scene latitude mapping and contrast mask are refused before session mutation; the old normalised-density DI tap remains available |
 
 ## Test interpretation
 

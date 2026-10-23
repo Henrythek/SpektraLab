@@ -17,8 +17,8 @@ vi.mock('../host/client', () => {
       calls.push(`render:${tier}`);
       return { width: 4, height: 4, data: new Uint8Array(64), colorSpace: 'sRGB', tier, reprinted: false, ms: 1 };
     }),
-    redecode: vi.fn(async (_sid: string, decode: object) => {
-      calls.push('redecode:' + JSON.stringify(decode));
+    redecode: vi.fn(async (_sid: string, decode: object | null, frame?: object | null) => {
+      calls.push('redecode:' + JSON.stringify(frame ? { decode, frame } : decode));
       return { session: 's1', width: 6000, height: 4000, kind: 'raw', metadata: { orientation: 1 }, params: {} };
     }),
   };
@@ -30,7 +30,7 @@ vi.mock('../platform', () => ({
   dirName: (p: string) => p,
 }));
 
-import { recomputeFilmFormat, sessionStore, setDecode, setGeometry, setParams, undo } from './session';
+import { recomputeFilmFormat, sessionStore, setDecode, setFilmEdge, setGeometry, setParams, setTool, undo } from './session';
 import type { HelloResult } from '@shared/protocol';
 import { settingsStore } from './settings';
 import { newSidecar } from '@shared/sidecar';
@@ -102,5 +102,43 @@ describe('white balance at decode (R2)', () => {
     setDecode((d) => ({ ...d, whiteBalance: 'Custom', temperature: 3200 }));
     await vi.waitFor(() => expect(calls).toContain('render:live'));
     expect(calls.some((c) => c.startsWith('redecode'))).toBe(false);
+  });
+});
+
+describe('the film edge', () => {
+  const hello = { methods: ['open', 'redecode', 'render'] } as unknown as HelloResult;
+
+  it('turning it on holds the crop at the gate and cuts the negative by it, in one undo step', async () => {
+    sessionStore.setState({ hello, frameKind: 'raw', tool: 'select' });
+    setFilmEdge({ active: true, format: '120_6x7' });
+    const s = sessionStore.getState();
+    expect(s.undo).toHaveLength(1);
+    const c = s.sidecar.geometry.crop;
+    // 6000 x 4000 held at 69.5 x 56: the full height, centred
+    expect((c.width * 6000) / (c.height * 4000)).toBeCloseTo(69.5 / 56, 4);
+    expect(c.height).toBe(1);
+    expect(c.x + c.width / 2).toBeCloseTo(0.5, 6);
+    await vi.waitFor(() => expect(calls.some((x) => x.startsWith('redecode:') && x.includes('"frame"'))).toBe(true));
+    await vi.waitFor(() => expect(calls.indexOf('render:live')).toBeGreaterThan(calls.findIndex((x) => x.includes('"frame"'))));
+    // the crop tool stays off: the canvas shows the film, not the picture
+    setTool('crop');
+    expect(sessionStore.getState().tool).toBe('select');
+    calls.length = 0;
+    undo();
+    expect(sessionStore.getState().sidecar.params.filmEdge.active).toBe(false);
+    expect(sessionStore.getState().sidecar.geometry.crop.width).toBe(1);
+    // off again: the whole decode back
+    await vi.waitFor(() => expect(calls.some((x) => x.startsWith('redecode:') && !x.includes('"frame"'))).toBe(true));
+  });
+
+  it('a new gate is cut before the engine draws it', async () => {
+    sessionStore.setState({ hello, frameKind: 'raw', tool: 'select' });
+    setFilmEdge({ active: true, format: '135' });
+    await vi.waitFor(() => expect(calls).toContain('render:live'));
+    calls.length = 0;
+    setFilmEdge({ format: '120_6x7' });
+    await vi.waitFor(() => expect(calls).toContain('render:live'));
+    // never the 6x7 gate over the 135 cut: the engine refuses that shape
+    expect(calls[0]).toMatch(/^redecode:.*"frame"/);
   });
 });

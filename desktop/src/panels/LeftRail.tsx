@@ -9,7 +9,9 @@ import { FlipH, FlipV, RotateLeft, RotateRight } from '../controls/icons';
 import { t, tz, useI18n } from '../i18n';
 import {
   copySettings,
+  filmCanvas,
   pasteSettings,
+  setFilmEdge,
   setGeometry,
   setPages,
   setParams,
@@ -207,7 +209,7 @@ function FilmSection() {
   );
 }
 
-// ------------------------------------------------- Film Edge, Date Back (stubs)
+// ---------------------------------------------------------- Film Edge, Date Back
 
 function FilmEdgeSection() {
   const gate = useSession((s) => s.gate);
@@ -215,12 +217,12 @@ function FilmEdgeSection() {
   const reason = unsupportedReason('overscan', gate.overscan);
   return (
     <Section id="filmEdge" title={t('sectionFilmEdge')} unsupported={reason}>
-      <ToggleRow label={t('sectionFilmEdge')} on={fe.active} onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, active: v } }))} />
+      <ToggleRow label={t('sectionFilmEdge')} on={fe.active} onChange={(v) => setFilmEdge({ active: v })} />
       <PillMenu
         label={t('edgeFormat')}
         value={fe.format}
         options={['135', '135_half', '135_xpan', '120_645', '120_6x6', '120_6x7', '120_6x8', '120_6x9', '120_6x12', '120_6x17'].map((v) => ({ value: v, label: v.replace('_', ' ') }))}
-        onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, format: v } }))}
+        onChange={(v) => setFilmEdge({ format: v })}
       />
       <PillMenu
         label={t('edgeView')}
@@ -229,7 +231,14 @@ function FilmEdgeSection() {
           { value: 'strip', label: t('edgeViewStrip') },
           { value: 'filed', label: t('edgeViewFiled') },
         ]}
-        onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, view: v } }))}
+        onChange={(v) => setFilmEdge({ view: v })}
+      />
+      <ScrubSlider
+        label={tz('Frame number', '帧号')}
+        value={fe.frameNumber}
+        range={[0, 99]}
+        format={(v) => (Math.round(v) > 0 ? String(Math.round(v)) : tz('Auto', '自动'))}
+        onChange={(v) => setFilmEdge({ frameNumber: Math.round(v) })}
       />
       <ScrubSlider label={t('edgeFog')} value={fe.fog} range={[0, 4]} zero={1} onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, fog: v } }))} />
       <ScrubSlider label={t('edgeLeaks')} value={fe.leaks} range={[0, 4]} onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, leaks: v } }))} />
@@ -323,6 +332,7 @@ function PrintSection() {
 
 function CropSection() {
   const g = useSession((s) => s.sidecar.geometry);
+  const film = useSession((s) => filmCanvas(s));
   const native = useSession((s) => s.nativeSize);
   const size = native ?? { width: 3000, height: 2000 };
   const out = native ? outputSize(g, native) : null;
@@ -331,6 +341,14 @@ function CropSection() {
     <Section
       id="crop"
       title={t('sectionCrop')}
+      unsupported={
+        film
+          ? tz(
+              'Film Edge is on: the crop is cut into the negative at the gate’s shape. Turn Film Edge off to reframe; the crop keeps the gate’s shape.',
+              '片边已开启：裁切按片门比例切入底片。关闭片边后再调整构图，裁切会保持片门比例。',
+            )
+          : null
+      }
       onReset={() => setGeometry(() => ({ ...g, crop: { x: 0, y: 0, width: 1, height: 1 }, angle: 0, aspect: 'free', intendedSize: null, lockedRatio: null }))}
       resetHelp={t('helpResetCrop')}
       menu={[

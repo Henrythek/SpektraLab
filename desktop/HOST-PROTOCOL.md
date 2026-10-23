@@ -104,8 +104,8 @@ What a file is decoded *to* (the engine develops linear ProPhoto RGB, top row fi
 ### Sessions (one per open frame)
 | method | params | result |
 |---|---|---|
-| `open` | `{path, decode?: {raw_mode?: "compatible16"\|"headroom", white_balance?: {mode: "as_shot"\|"custom", temperature_k?, tint?}, lens_correction?: false}, params?: <full or partial params JSON>}` | `{session: "<sid>", width, height, kind, metadata, params, detected_input, output_color_space, timings_ms: {decode, open}}` — any other `decode` key is `unsupported` |
-| `redecode` | `{session, decode}` | as `open` (same `session` id, params kept): decode the session's file again with other decode settings. The engine session is replaced; on failure the old one is untouched (R2) |
+| `open` | `{path, decode?: {raw_mode?: "compatible16"\|"headroom", white_balance?: {mode: "as_shot"\|"custom", temperature_k?, tint?}, lens_correction?: false}, params?: <full or partial params JSON>, frame?: <geometry>}` | `{session: "<sid>", width, height, source_width, source_height, kind, metadata, params, detected_input, output_color_space, timings_ms: {decode, open}}` — any other `decode` key is `unsupported`. `frame` (the film edge): `{crop: {x, y, width, height}, angle, quarter_turns, flip_h, flip_v}`, the app's geometry (`shared/geometry.ts` `sourcePoint`); the engine is handed the decode cut by it, so `width`/`height` are the cut frame's and `source_*` the decode's |
+| `redecode` | `{session, decode?, frame?}` | as `open` (same `session` id, params kept): decode the session's file again with other decode settings and/or another `frame` cut. The engine session is replaced; on failure the old one is untouched (R2) |
 | `close` | `{session}` | `{}` |
 | `set_params` | `{session, delta: {...}}` | `{params}` (the delta is applied transactionally: on error the session is unchanged) |
 | `get_params` | `{session}` | `{params}` |

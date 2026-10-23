@@ -91,6 +91,12 @@ Host side: add `render_di {session}` (rgba16, `color_space` = the reply's
 
 ## 4. Overscan / Film Edge (RFC-031/032) -- the large one
 
+**Done** (fork `Henrythek/SpektraLab`, 2026-10-19): the four kernels are
+`spk_overscan_*.comp`; the raster is `edge_raster.cpp` behind `#ifndef
+__APPLE__` (the macOS path is untouched); fonts are TeX Gyre Heros in
+`resources/fonts`. Still owed from the test plan below: per-kernel double
+gates and the Mac coverage-plane comparison.
+
 | | |
 |---|---|
 | Metal | `src/shaders/overscan.metal` (394 lines): `:144` `spk_overscan_canvas` (the film canvas around the frame: rebate, carrier, holes), `:208` `spk_overscan_add_mask` (add the rasterised edge print / date as exposure), `:305` `spk_overscan_film_present` (the film's presence in density), `:331` `spk_overscan_light` (the scan's view of the holes) |

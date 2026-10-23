@@ -90,12 +90,13 @@ export class Host {
     const r = await this.call<{ image: ImageInfo; orientation?: number }>('thumbnail', { path, long_edge: longEdge }, 60_000);
     return rgba8(r.result.image, r.payload);
   }
-  async open(path: string, params: WireParams, decode?: object | null): Promise<OpenResult> {
-    return (await this.call<OpenResult>('open', decode ? { path, params, decode } : { path, params }, 300_000)).result;
+  /** `frame`: the film edge's cut of the decode (HOST-PROTOCOL.md `open`); omitted when null. */
+  async open(path: string, params: WireParams, decode?: object | null, frame?: object | null): Promise<OpenResult> {
+    return (await this.call<OpenResult>('open', { path, params, ...(decode ? { decode } : {}), ...(frame ? { frame } : {}) }, 300_000)).result;
   }
-  /** Decode the session's file again with other decode settings; params are kept (R2). */
-  async redecode(session: string, decode: object): Promise<OpenResult> {
-    return (await this.call<OpenResult>('redecode', { session, decode }, 300_000)).result;
+  /** Decode the session's file again with other decode settings and/or another `frame` cut; params are kept (R2). */
+  async redecode(session: string, decode: object | null, frame?: object | null): Promise<OpenResult> {
+    return (await this.call<OpenResult>('redecode', { session, ...(decode ? { decode } : {}), ...(frame ? { frame } : {}) }, 300_000)).result;
   }
   async close(session: string): Promise<void> {
     await this.call('close', { session });

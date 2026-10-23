@@ -228,12 +228,12 @@ def extras(host, sid, path, tmp, label, raw, probe):
     h, _ = host.call("scene_latitude", {"session": sid})
     check(h["ok"], f"{label}: scene_latitude (analysis)", h.get("error"))
     h, _ = host.call("overscan_geometry", {"session": sid})
-    check(h["ok"] and h["result"].get("valid") is False, f"{label}: overscan_geometry (refused feature -> invalid)")
+    check(h["ok"] and h["result"].get("valid") is False, f"{label}: overscan_geometry (film edge off -> invalid)")
     h, _ = host.call("progress", {"session": sid})
     check(h["ok"] and "pct" in h["result"], f"{label}: progress", h.get("error"))
-    # The five refused features are refused by name, and leave the session usable.
-    for field in ("contrast_mask_active", "scene_latitude_active", "overscan_active", "date_imprint_active",
-                  "digital_intermediate"):
+    # The three refused features are refused by name, and leave the session usable.
+    # (The film edge and date imprint are ported; they render.)
+    for field in ("contrast_mask_active", "scene_latitude_active", "digital_intermediate"):
         h, _ = host.call("set_params", {"session": sid, "delta": {field: True}})
         check(not h["ok"] and h["error"]["code"] == "bad_request" and "not implemented" in h["error"]["message"],
               f"{label}: {field} refused", h.get("error", {}).get("message", "accepted?!"))
@@ -346,6 +346,35 @@ def main():
     png = os.path.join(tmp, "ramp.png")
     write_png(png, 96, 64)
     exercise(host, png, tmp, "png", False)
+    # The film edge (ported to Vulkan): a frame of the 135 gate's shape comes
+    # back as the whole film canvas, edge print and date included.
+    # The picture is wider than the gate; `frame` cuts it to the gate's shape
+    # in the negative, as the app's crop does while the film edge is on.
+    gpng = os.path.join(tmp, "gate.png")
+    write_png(gpng, 200, 97)
+    crop = {"crop": {"x": 0.1, "y": 0, "width": 0.725, "height": 1}, "angle": 0, "quarter_turns": 0,
+            "flip_h": False, "flip_v": False}
+    h, _ = host.call("open", {"path": gpng, "frame": crop})
+    if check(h["ok"] and h["result"]["width"] == 145 and h["result"]["source_width"] == 200,
+             "film edge: open cut by frame", h.get("error") or h.get("result", {}).get("width")):
+        h, _ = host.call("redecode", {"session": h["result"]["session"], "frame": dict(crop, quarter_turns=1)})
+        check(h["ok"] and h["result"]["width"] == 97 and h["result"]["height"] == 145,
+              "film edge: redecode re-cuts the frame (quarter turn)", h.get("error"))
+        sid = h["result"]["session"]
+        h, _ = host.call("set_params", {"session": sid, "delta": {
+            "overscan_active": True, "overscan_format": "135", "date_imprint_active": True,
+            "date_imprint_text": "'26 10 19"}})
+        check(h["ok"], "film edge: set_params", h.get("error"))
+        h, px = host.call("render", {"session": sid, "tier": "full", "format": "rgba8", "display": "srgb"})
+        if check(h["ok"], "film edge: render", h.get("error")):
+            im = h["result"]["image"]
+            long_, short = max(im["width"], im["height"]), min(im["width"], im["height"])
+            check(long_ > 145 and short > 97 and len(px) == im["width"] * im["height"] * 4,
+                  "film edge: the canvas is the film, not the frame", f'{im["width"]}x{im["height"]}')
+        h, _ = host.call("overscan_geometry", {"session": sid})
+        check(h["ok"] and h["result"].get("valid") is True and len(h["result"].get("gates", [])) == 1,
+              "film edge: overscan_geometry", h.get("error"))
+        host.call("close", {"session": sid})
     # A folder and file named outside ASCII: the wire is UTF-8, Windows needs
     # wide APIs underneath (platform.cpp), and a regression there is silent.
     uni = os.path.join(tmp, "相片 Ünïcode")
