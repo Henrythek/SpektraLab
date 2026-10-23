@@ -1,0 +1,138 @@
+# The iOS / iPadOS app (ios_UI/SpektraLab): does a clean checkout build?
+#
+# Like build.yml, this proves the build and nothing about the pictures: a
+# hosted runner has no iPhone, and the simulator's Metal is the Mac's GPU, not
+# an A-series one. What it does prove is the whole chain a Mac would run --
+# the engine's C++ compiled for iOS, its kernels compiled for the platform by
+# Tools/bundle-engine.sh, the profiles and catalogue in the bundle, the Swift
+# compiled under Swift 6's strict concurrency.
+#
+#   simulator   Debug, for any iOS Simulator. The fast check.
+#   device      Release, for any iOS device, **unsigned**, packed as an .ipa
+#               and uploaded as an artifact. Unsigned means it installs on
+#               nothing as it stands; a sideloading tool (AltStore,
+#               Sideloadly) re-signs it with the installer's own Apple ID, or a
+#               Mac with Xcode signs and installs it. ios_UI/README.md has both.
+
+name: iOS
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - 'ios_UI/**'
+      - 'engine/src/**'
+      - 'engine/include/**'
+      - 'engine/resources/**'
+      - 'engine/resources_product/**'
+      - 'modern_UI/Spektrafilm/Spektrafilm/Resources/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios_UI/**'
+      - 'engine/src/**'
+      - 'engine/include/**'
+      - 'engine/resources/**'
+      - 'engine/resources_product/**'
+      - 'modern_UI/Spektrafilm/Spektrafilm/Resources/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: macos-26          # arm64; Xcode 26.6 is the image default
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: iOS Simulator (Debug)
+            kind: simulator
+            configuration: Debug
+            destination: generic/platform=iOS Simulator
+          - name: iOS device (Release, unsigned)
+            kind: device
+            configuration: Release
+            destination: generic/platform=iOS
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+
+      - name: Project is current
+        working-directory: ios_UI/SpektraLab
+        run: python3 Tools/gen-project.py --check
+
+      # From Xcode 26 the Metal compiler and the iOS platform are separate
+      # downloads; the image may or may not carry them.
+      - name: Metal toolchain and iOS platform
+        run: |
+          xcrun -sdk iphoneos metal --version \
+            || xcodebuild -downloadComponent MetalToolchain
+          xcodebuild -showsdks | grep -q iphonesimulator \
+            || xcodebuild -downloadPlatform iOS
+
+      - name: Build
+        working-directory: ios_UI/SpektraLab
+        run: |
+          mkdir -p build
+          set +e
+          xcodebuild -project SpektraLab.xcodeproj -scheme SpektraLab \
+            -configuration ${{ matrix.configuration }} \
+            -destination '${{ matrix.destination }}' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build > build/xcodebuild.log 2>&1
+          status=$?
+          # The log is long; the job log carries the errors and the verdict.
+          grep -E 'error:|BUILD (SUCCEEDED|FAILED)|bundle-engine:' build/xcodebuild.log | sort -u | head -300
+          if [ $status -ne 0 ]; then tail -80 build/xcodebuild.log; fi
+          exit $status
+
+      - name: Bundle carries the engine
+        working-directory: ios_UI/SpektraLab
+        run: |
+          app=$(find build/DerivedData/Build/Products -name SpektraLab.app -maxdepth 2 | head -1)
+          echo "app: $app"
+          for f in engine/spektrafilm.metallib engine/spektrafilm_constants.bin engine/print_luts.json \
+                   engine/profiles/kodak_portra_400.json engine/profiles/kodak_tri_x_400.json \
+                   engine/profiles/ilford_multigrade_iv_rc.json StockCatalog.json Licenses/README.txt; do
+            test -e "$app/$f" || { echo "missing $f"; exit 1; }
+          done
+          xcrun metal-readobj --file-headers "$app/engine/spektrafilm.metallib" | grep -E 'Platform' | head -4 || true
+          du -sh "$app"
+
+      - name: Pack unsigned .ipa
+        if: matrix.kind == 'device'
+        working-directory: ios_UI/SpektraLab
+        run: |
+          app=$(find build/DerivedData/Build/Products/Release-iphoneos -name SpektraLab.app -maxdepth 1 | head -1)
+          mkdir -p build/ipa/Payload
+          cp -R "$app" build/ipa/Payload/
+          (cd build/ipa && zip -qry ../SpektraLab-unsigned.ipa Payload)
+          ls -la build/SpektraLab-unsigned.ipa
+
+      - name: Upload .ipa
+        if: matrix.kind == 'device'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpektraLab-iOS-unsigned
+          path: ios_UI/SpektraLab/build/SpektraLab-unsigned.ipa
+          retention-days: 30
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log-${{ matrix.kind }}
+          path: ios_UI/SpektraLab/build/xcodebuild.log
+          retention-days: 7
