@@ -237,7 +237,7 @@ function FilmEdgeSection() {
         label={tz('Frame number', '帧号')}
         value={fe.frameNumber}
         range={[0, 99]}
-        format={(v) => String(Math.round(v))}
+        format={(v) => (Math.round(v) > 0 ? String(Math.round(v)) : tz('Auto', '自动'))}
         onChange={(v) => setFilmEdge({ frameNumber: Math.round(v) })}
       />
       <ScrubSlider label={t('edgeFog')} value={fe.fog} range={[0, 4]} zero={1} onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, fog: v } }))} />

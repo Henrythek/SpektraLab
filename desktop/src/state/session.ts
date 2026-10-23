@@ -181,17 +181,19 @@ function engineParams(s: SessionState = get()): FilmParams {
 export function setFilmEdge(patch: Partial<FilmParams['filmEdge']>) {
   const s = get();
   if (s.batchExporting) return;
-  setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, ...patch } }));
-  const after = get();
-  if (filmCanvas(after) && after.nativeSize) {
-    const g = fitCropToGate(after.sidecar.geometry, after.nativeSize, after.sidecar.params.filmEdge.format);
-    if (!jsonEqual(g, after.sidecar.geometry)) {
-      // Part of the same edit: setParams took the undo step.
-      set({ sidecar: { ...after.sidecar, geometry: g }, savedGeometry: after.selection ? { ...after.savedGeometry, [after.selection]: g } : after.savedGeometry });
-      scheduleSave();
-    }
-  }
-  if (get().tool === 'crop' && filmCanvas()) set({ tool: 'select' });
+  const params = { ...s.sidecar.params, filmEdge: { ...s.sidecar.params.filmEdge, ...patch } };
+  if (jsonEqual(params, s.sidecar.params)) return;
+  // The params and the crop held to the new gate land as one edit, so the
+  // engine never sees the new gate with the old cut (it refuses that shape).
+  const film = filmShows(params, s.gate.overscan);
+  const geometry = film && s.nativeSize ? fitCropToGate(s.sidecar.geometry, s.nativeSize, params.filmEdge.format) : s.sidecar.geometry;
+  pushUndo();
+  const state = s.sidecar.state === 'processed' ? 'stale' : s.sidecar.state;
+  if (jsonEqual(geometry, s.sidecar.geometry)) set({ sidecar: { ...s.sidecar, params, state } });
+  else set({ sidecar: { ...s.sidecar, params, geometry, state }, savedGeometry: s.selection ? { ...s.savedGeometry, [s.selection]: geometry } : s.savedGeometry });
+  scheduleSave();
+  if (film && get().tool === 'crop') set({ tool: 'select' });
+  void requestPrint();
 }
 
 // ------------------------------------------------------------ the scheduler

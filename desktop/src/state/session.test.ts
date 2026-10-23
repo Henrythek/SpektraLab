@@ -130,4 +130,15 @@ describe('the film edge', () => {
     // off again: the whole decode back
     await vi.waitFor(() => expect(calls.some((x) => x.startsWith('redecode:') && !x.includes('"frame"'))).toBe(true));
   });
+
+  it('a new gate is cut before the engine draws it', async () => {
+    sessionStore.setState({ hello, frameKind: 'raw', tool: 'select' });
+    setFilmEdge({ active: true, format: '135' });
+    await vi.waitFor(() => expect(calls).toContain('render:live'));
+    calls.length = 0;
+    setFilmEdge({ format: '120_6x7' });
+    await vi.waitFor(() => expect(calls).toContain('render:live'));
+    // never the 6x7 gate over the 135 cut: the engine refuses that shape
+    expect(calls[0]).toMatch(/^redecode:.*"frame"/);
+  });
 });
