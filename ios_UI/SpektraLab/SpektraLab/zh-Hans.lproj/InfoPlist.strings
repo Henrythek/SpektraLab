@@ -1,0 +1,2 @@
+/* 首次将成片存入照片图库时由 iOS 显示。 */
+"NSPhotoLibraryAddUsageDescription" = "SpektraLab 会将冲印完成的照片存入你的照片图库。";
