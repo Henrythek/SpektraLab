@@ -179,11 +179,12 @@ actor Engine {
             throw EngineError.frameTooLarge(bytes)
         }
         let placed = image.transformed(by: .init(translationX: -extent.origin.x, y: -extent.origin.y))
-        autoreleasepool {
-            context.render(placed, toBitmap: buffer.contents(), rowBytes: width * 16,
-                           bounds: CGRect(x: 0, y: 0, width: width, height: height),
-                           format: .RGBAf, colorSpace: ColourSpaces.linearProPhoto)
-        }
+        // Not in an `autoreleasepool` closure as on the Mac: Swift 6 refuses to
+        // send the actor's buffer into one. The pool this call's autoreleases
+        // land in drains when the actor's job returns.
+        context.render(placed, toBitmap: buffer.contents(), rowBytes: width * 16,
+                       bounds: CGRect(x: 0, y: 0, width: width, height: height),
+                       format: .RGBAf, colorSpace: ColourSpaces.linearProPhoto)
 
         var reply: UnsafeMutablePointer<CChar>?
         var frame = spk_device_image(buffer: Unmanaged.passUnretained(buffer).toOpaque(),
@@ -266,7 +267,7 @@ enum ColourSpaces {
     /// and linear sRGB/P3, but no linear ROMM. The engine's input convention
     /// (`io.input_color_space`), built exactly as the Mac's
     /// `ImageDecoder.linearProPhoto` builds it.
-    nonisolated(unsafe) static let linearProPhoto: CGColorSpace = {
+    static let linearProPhoto: CGColorSpace = {
         let d50: [CGFloat] = [0.9642, 1.0000, 0.8249]
         let black: [CGFloat] = [0, 0, 0]
         let gamma: [CGFloat] = [1, 1, 1]
@@ -287,5 +288,5 @@ enum ColourSpaces {
         }
     }()
 
-    nonisolated(unsafe) static let displayP3 = CGColorSpace(name: CGColorSpace.displayP3)!
+    static let displayP3 = CGColorSpace(name: CGColorSpace.displayP3)!
 }
