@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The only string Android shows itself. Everything the app shows is in
+         Strings.kt, switched live from Settings as on the Mac and iOS. -->
+    <string name="app_name" translatable="false">SpektraLab</string>
+</resources>
