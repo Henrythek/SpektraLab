@@ -70,12 +70,15 @@ fun EditorScreen(model: EditorViewModel, onPickPhoto: () -> Unit) {
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Palette.canvas)) {
         val wide = maxWidth > maxHeight && maxWidth > 600.dp
+        // Read here: inside Row/Column the scopes' own receivers hide these.
+        val railWidth = minOf(380.dp, maxWidth * 0.4f)
+        val panelHeight = minOf(300.dp, maxHeight * 0.38f)
         Column(Modifier.fillMaxSize()) {
             TopBar(model, onPickPhoto, onSettings = { showSettings = true }, onExport = { showExport = true })
             if (wide) {
                 Row(Modifier.weight(1f)) {
                     Canvas(model, Modifier.weight(1f).fillMaxHeight())
-                    Column(Modifier.width(minOf(380.dp, maxWidth * 0.4f)).fillMaxHeight().background(Palette.card)) {
+                    Column(Modifier.width(railWidth).fillMaxHeight().background(Palette.card)) {
                         ToolBar(tool) { tool = it }
                         HorizontalDivider(color = Palette.rule)
                         ToolPanel(model, tool, Modifier.weight(1f))
@@ -83,7 +86,7 @@ fun EditorScreen(model: EditorViewModel, onPickPhoto: () -> Unit) {
                 }
             } else {
                 Canvas(model, Modifier.weight(1f).fillMaxWidth())
-                Box(Modifier.fillMaxWidth().height(minOf(300.dp, maxHeight * 0.38f)).background(Palette.card)) {
+                Box(Modifier.fillMaxWidth().height(panelHeight).background(Palette.card)) {
                     ToolPanel(model, tool)
                 }
                 Box(Modifier.background(Palette.card)) { ToolBar(tool) { tool = it } }
