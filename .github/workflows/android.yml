@@ -1,0 +1,113 @@
+# The Android app (android_UI): does a clean checkout build, and does its
+# native core render?
+#
+# Like ios.yml, this proves the build and nothing about a phone's GPU: a
+# hosted runner has no phone. Two things are proved:
+#
+#   native core   android_UI/Tools/native-smoke.sh -- the app's studio.cpp, the
+#                 engine, LibRaw and the writers, built for the runner and run on
+#                 Mesa's CPU Vulkan (lavapipe): colour, slide and B&W prints, the
+#                 meter, Finish, white balance and every export format.
+#   APK           the whole app with the NDK for arm64-v8a, the kernels compiled
+#                 to SPIR-V and the profiles bundled as assets, uploaded as the
+#                 artifact SpektraLab-android-debug. It is signed with the debug
+#                 key, so it installs on any phone that allows unknown apps
+#                 (android_UI/README.md).
+
+name: Android
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - 'android_UI/**'
+      - 'engine/**'
+      - 'modern_UI/Spektrafilm/Spektrafilm/Resources/**'
+      - 'license/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'android_UI/**'
+      - 'engine/**'
+      - 'modern_UI/Spektrafilm/Spektrafilm/Resources/**'
+      - 'license/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kernel compiler and Mesa's CPU Vulkan
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build glslang-tools libvulkan1 mesa-vulkan-drivers
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: deps-${{ hashFiles('engine/setup-deps.sh', 'engine/setup-libraw.sh') }}
+
+      - name: Pinned dependencies (LibRaw, Vulkan-Headers)
+        run: engine/setup-deps.sh
+
+      - name: Native core on lavapipe
+        run: android_UI/Tools/native-smoke.sh
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: APK
+        working-directory: android_UI
+        run: |
+          ndk="$(basename "${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}")"
+          echo "NDK $ndk"
+          ./gradlew --no-daemon --stacktrace assembleDebug -Pspektralab.ndkVersion="$ndk"
+
+      - name: APK carries the engine
+        working-directory: android_UI
+        run: |
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          unzip -l "$apk" > contents.txt
+          for f in lib/arm64-v8a/libspektralab.so assets/engine/spektrafilm_constants.bin \
+                   assets/engine/print_luts.json assets/engine/io/sRGB.icc \
+                   assets/engine/vulkan/spk_math_probe.spv assets/engine/vulkan/spk_bw_correct.spv \
+                   assets/engine/profiles/kodak_portra_400.json assets/engine/profiles/kodak_tri_x_400.json \
+                   assets/engine/profiles/ilford_multigrade_iv_rc.json assets/StockCatalog.json \
+                   assets/licenses/SpektraLab-GPL-3.0.txt; do
+            grep -q " $f\$" contents.txt || { echo "missing $f"; exit 1; }
+          done
+          ls -la "$apk"
+          cp "$apk" SpektraLab-android-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpektraLab-android-debug
+          path: android_UI/SpektraLab-android-debug.apk
+          retention-days: 30
+
+      - name: Upload smoke prints
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-native-smoke-prints
+          path: build/android-smoke/out/*.png
+          retention-days: 7
+          if-no-files-found: ignore

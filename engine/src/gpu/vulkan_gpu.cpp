@@ -292,15 +292,27 @@ public:
             detail = "Vulkan probe passed (precise product + fused fma; full shader parity pending)";
             return true;
         }
-        if (zero && !exact && properties_.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) {
+        // Android: a phone GPU whose fma is consistently unfused takes the same
+        // Dekker path. Unlike a desktop GPU, where unfused fma means fast or
+        // contracted math was forced on the driver, mobile drivers are free to
+        // lower fma to mul+add, and the Dekker product is exact either way.
+        // Mixed lanes still refuse.
+#ifdef __ANDROID__
+        const bool unfused_accepted = true;
+#else
+        const bool unfused_accepted = properties_.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
+#endif
+        if (zero && !exact && unfused_accepted) {
             // The double-float kernels then take an exact Dekker product
             // instead of fma (specialization constant 0; see two_prod in
             // spk_iir_df_acc.comp): without it the IIR blur's low word is lost
             // and the recursion amplifies it -- 0.4 % on a 257-px constant row.
             fused_fma_ = 0;
-            detail = "Vulkan probe passed on a CPU device with unfused fma (double-float kernels use an "
-                     "exact Dekker product; full shader parity pending)";
-            probe_cpu_storage_range(detail);
+            const bool cpu = properties_.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
+            detail = std::string("Vulkan probe passed on a ") + (cpu ? "CPU device" : "GPU") +
+                     " with unfused fma (double-float kernels use an exact Dekker product; full shader "
+                     "parity pending)";
+            if (cpu) probe_cpu_storage_range(detail);
             return true;
         }
         if (!exact && !zero) { detail = "Vulkan math probe produced no informative residuals"; return false; }
