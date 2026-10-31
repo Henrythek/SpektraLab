@@ -3,6 +3,26 @@
 Running log for whoever picks this up next (a restarted worker or a human).
 Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 
+## Claude UI flavor (2026-10-31)
+
+A second skin, "SpektraLab Claude UI", after the Claude Design System
+guidelines (open-claude-ui: AGENTS.md, `cds-theme.css`). Same engine, same
+host, same features; only the look and the app identity differ.
+- `src/flavor.ts` picks the flavor: `VITE_UI_FLAVOR=claude` at build time,
+  or `?ui=claude` on the dev server. It sets `<html data-ui="claude">`.
+- `src/styles/theme-claude.css` holds every rule, all scoped to
+  `:root[data-ui='claude']`: CDS tokens, the app's tokens bridged onto them,
+  and component shapes (pill segmented tracks, XS/SM button tiers, popover
+  menus, clay focus ring, CDS easing). A classic build is pixel-identical to
+  before (checked against a screenshot of the layout harness).
+- `SPEKTRALAB_FLAVOR=claude node scripts/package.mjs win|linux` adds
+  `src-tauri/tauri.claude.conf.json` (product name, binary
+  `SpektraLab-ClaudeUI`, identifier `app.spektralab.desktop.claudeui`), so
+  it installs beside the classic app with its own edit store, and writes to
+  `release/<os>-claude/`.
+- CI: `package-windows-claude` in desktop.yml uploads
+  `spektralab-claude-ui-windows-x64`.
+
 ## Status (2026-10-06, finish-up pass)
 
 What the finish-up pass added on top of the first pass below:

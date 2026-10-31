@@ -42,8 +42,9 @@ import {
 import { HistogramOverlay, histogramOf, type Histogram } from './histogram';
 import { publishOutput } from './output';
 import { useI18n } from '../i18n';
+import { CANVAS_SURROUND } from '../flavor';
 
-const SURROUND = 0x5f / 255;
+const SURROUND = CANVAS_SURROUND;
 
 export interface Layout {
   viewport: { width: number; height: number };
