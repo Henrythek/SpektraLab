@@ -329,6 +329,13 @@ jobs:
           if (-not $hostProc) { Stop-Process -Id $app.Id -Force; throw "SpektraLab.exe did not start the spektralab-host.exe beside it" }
           "app pid $($app.Id) started host pid $($hostProc.ProcessId):"
           "  $($hostProc.CommandLine)"
+          # The engine joins file names onto --resources with '/', which Windows
+          # takes literally after a verbatim \\?\ prefix (Tauri's resource_dir()
+          # returns one here), so the app must pass the plain form.
+          if ($hostProc.CommandLine -match [regex]::Escape('\\?\')) {
+            Stop-Process -Id $app.Id -Force
+            throw "the app passed a verbatim (\\?\) path to the host; the engine cannot open its resources from it"
+          }
           Start-Sleep -Seconds 5
           if ($app.HasExited) { throw "SpektraLab.exe exited with $($app.ExitCode)" }
           Stop-Process -Id $app.Id -Force
