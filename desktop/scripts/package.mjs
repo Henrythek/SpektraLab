@@ -25,9 +25,16 @@
 // with its own product name, identifier (so its own edit store and install
 // directory) and output folder (release/<os>-claude/). It installs beside the
 // classic app and changes nothing about it.
+//
+// `win` also writes a portable zip: the installed layout in a folder, so
+// unzip anywhere and run the exe. The app finds its engine the same way in
+// both (src-tauri/src/host.rs, resolve_launch):
+//   <App>.exe, spektralab-host.exe   side by side
+//   host/engine/, host/licenses/     Tauri's resource_dir on Windows is the exe's folder
+// It needs the WebView2 runtime, which Windows 10/11 ship (README.txt says so).
 
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -140,6 +147,59 @@ function collect(t) {
   console.log('package: wrote\n  ' + found.join('\n  '));
 }
 
+const IDENTITY = {
+  classic: { product: 'SpektraLab', exe: 'SpektraLab', identifier: 'app.spektralab.desktop' },
+  claude: { product: 'SpektraLab Claude UI', exe: 'SpektraLab-ClaudeUI', identifier: 'app.spektralab.desktop.claudeui' },
+};
+
+const PORTABLE_README = (id, version) => `${id.product} ${version} for Windows (x64), portable
+${'='.repeat(id.product.length + version.length + 30)}
+
+Unzip this folder anywhere (a USB stick works too) and run ${id.exe}.exe.
+Nothing is installed and nothing outside this folder is needed, except:
+
+- Microsoft Edge WebView2 Runtime. Windows 11 and up-to-date Windows 10 have it.
+  If no window opens, install the Evergreen runtime from
+  https://developer.microsoft.com/microsoft-edge/webview2/
+- A Vulkan GPU driver (any current NVIDIA, AMD or Intel driver) to develop images.
+
+Keep the files together: ${id.exe}.exe starts spektralab-host.exe beside it,
+which reads its film and paper profiles from host\\engine.
+
+Settings and edits are kept per user in %APPDATA%\\${id.identifier}.
+To remove the app, delete this folder.
+
+Licenses: LICENSE.txt (GPL-3.0-or-later) and host\\licenses.
+`;
+
+// The installed layout, in a folder, zipped. Built from what the installer was
+// built from: the app exe cargo produced and the staged host.
+function portable(t) {
+  const id = IDENTITY[flavor];
+  const version = JSON.parse(readFileSync(join(tauriDir, 'tauri.conf.json'), 'utf8')).version;
+  const name = `${id.exe}_${version}_x64-portable`;
+  const release = join(desktop, 'release', outDir(t));
+  const dir = join(release, name);
+  // Tauri names the built exe after mainBinaryName when one is set; cargo's own name otherwise.
+  const out = join(tauriDir, 'target', t.triple, 'release');
+  const appExe = [`${id.exe}.exe`, 'spektralab.exe'].map((f) => join(out, f)).find((f) => existsSync(f));
+  if (!appExe) die(`no app exe in ${out}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(join(dir, 'host'), { recursive: true });
+  cpSync(appExe, join(dir, `${id.exe}.exe`));
+  cpSync(join(t.hostDir, t.exe), join(dir, t.exe));
+  cpSync(join(t.hostDir, 'engine'), join(dir, 'host', 'engine'), { recursive: true });
+  if (existsSync(join(t.hostDir, 'licenses'))) cpSync(join(t.hostDir, 'licenses'), join(dir, 'host', 'licenses'), { recursive: true });
+  cpSync(join(repo, 'license', 'LICENSE'), join(dir, 'LICENSE.txt'));
+  writeFileSync(join(dir, 'README.txt'), PORTABLE_README(id, version).replace(/\n/g, '\r\n'));
+  const zip = join(release, `${name}.zip`);
+  rmSync(zip, { force: true });
+  // Windows 10+ ships bsdtar as tar.exe, which writes zips with -a; elsewhere, zip(1).
+  if (process.platform === 'win32') execFileSync('tar.exe', ['-a', '-c', '-f', zip, name], { cwd: release, stdio: 'inherit' });
+  else execFileSync('zip', ['-r', '-q', '-X', zip, name], { cwd: release, stdio: 'inherit' });
+  console.log(`package: wrote\n  ${join('release', outDir(t), `${name}.zip`)} (${(statSync(zip).size / 1e6).toFixed(1)} MB)`);
+}
+
 const t = TARGETS[which];
 if (!t) die('usage: node scripts/package.mjs linux|win');
 const conf = stage(t);
@@ -162,3 +222,4 @@ if (which === 'linux') env.NO_STRIP = env.NO_STRIP ?? 'true'; // linuxdeploy's s
 const arg = (a) => (onWindows && /\s/.test(a) ? `"${a}"` : a);
 execFileSync('npx', ['tauri', 'build', '--config', conf, ...flavorConf, '--bundles', t.bundles, ...t.extra].map(arg), { cwd: desktop, stdio: 'inherit', env, shell: onWindows });
 collect(t);
+if (which === 'win') portable(t);

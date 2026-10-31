@@ -357,6 +357,60 @@ jobs:
           python .github/scripts/host_hello.py --host $hostExe.FullName --resources $engine.FullName
           if ($LASTEXITCODE -ne 0) { throw "installed host failed hello" }
 
+      # The portable zip on its own: unpacked into a fresh folder with a space
+      # in its path, away from the checkout, then: only system DLLs or what the
+      # zip carries; the zipped host answers hello; the app starts, launches the
+      # host beside it, and passes it a plain (not \\?\) resources path.
+      - name: Unpack the portable zip and check it runs standalone
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem desktop/release/windows-claude/*-portable.zip | Select-Object -First 1
+          if (-not $zip) { throw "no portable zip in desktop/release/windows-claude" }
+          "zip: $($zip.Name) ($([math]::Round($zip.Length / 1MB, 1)) MB)"
+          $dest = Join-Path $env:RUNNER_TEMP 'portable test'
+          Expand-Archive $zip.FullName -DestinationPath $dest
+          $dir = Get-ChildItem $dest -Directory | Select-Object -First 1
+          Get-ChildItem $dir.FullName | Format-Table Name, Length -AutoSize | Out-String | Write-Host
+          foreach ($f in 'SpektraLab-ClaudeUI.exe', 'spektralab-host.exe', 'host\engine\vulkan', 'README.txt', 'LICENSE.txt') {
+            if (-not (Test-Path (Join-Path $dir.FullName $f))) { throw "the zip lacks $f" }
+          }
+
+          python -m pip install --quiet pefile
+          python .github/scripts/pe_deps.py $dir.FullName
+          if ($LASTEXITCODE -ne 0) { throw "the portable folder needs a DLL it does not carry" }
+
+          python .github/scripts/host_hello.py --host (Join-Path $dir.FullName 'spektralab-host.exe') --resources (Join-Path $dir.FullName 'host\engine')
+          if ($LASTEXITCODE -ne 0) { throw "the zipped host failed hello" }
+
+          $app = Start-Process (Join-Path $dir.FullName 'SpektraLab-ClaudeUI.exe') -WorkingDirectory $env:RUNNER_TEMP -PassThru
+          $hostProc = $null
+          for ($i = 0; $i -lt 60 -and -not $hostProc; $i++) {
+            Start-Sleep -Milliseconds 500
+            if ($app.HasExited) { throw "the app exited with $($app.ExitCode) right after starting" }
+            $hostProc = Get-CimInstance Win32_Process -Filter "Name = 'spektralab-host.exe'" |
+              Where-Object { $_.ParentProcessId -eq $app.Id -and $_.ExecutablePath -like "$($dir.FullName)*" } |
+              Select-Object -First 1
+          }
+          if (-not $hostProc) { Stop-Process -Id $app.Id -Force; throw "the app did not start the spektralab-host.exe beside it" }
+          "app pid $($app.Id) started host pid $($hostProc.ProcessId):"
+          "  $($hostProc.CommandLine)"
+          if ($hostProc.CommandLine -match [regex]::Escape('\\?\')) {
+            Stop-Process -Id $app.Id -Force
+            throw "the app passed a verbatim (\\?\) path to the host; the engine cannot open its resources from it"
+          }
+          Start-Sleep -Seconds 5
+          if ($app.HasExited) { throw "the app exited with $($app.ExitCode)" }
+          Stop-Process -Id $app.Id -Force
+          Get-Process spektralab-host -ErrorAction SilentlyContinue | Stop-Process -Force
+
+      # Uploaded as the zip itself (an artifact download wraps it in one more zip).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spektralab-claude-ui-windows-x64-portable
+          path: desktop/release/windows-claude/*-portable.zip
+          if-no-files-found: error
+          retention-days: 14
+
       - uses: actions/upload-artifact@v4
         with:
           name: spektralab-claude-ui-windows-x64
