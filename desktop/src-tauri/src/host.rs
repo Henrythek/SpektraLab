@@ -401,13 +401,34 @@ fn platform_dir() -> &'static str {
     }
 }
 
+/// The `--resources` argument. The engine joins file names onto it with `/`,
+/// which Windows accepts in an ordinary path but *not* after the verbatim
+/// prefix `\\?\`: there every character is literal, so
+/// `\\?\I:\…\host\engine/spektrafilm_constants.bin` does not exist. Tauri's
+/// `resource_dir()` can hand back such a path (seen on an install on I:), so
+/// drop the prefix whenever the plain form means the same file: a drive path
+/// (`\\?\C:\…` → `C:\…`) or a share (`\\?\UNC\srv\x` → `\\srv\x`).
+fn resources_arg(p: &Path) -> String {
+    let s = p.display().to_string();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        let b = rest.as_bytes();
+        if b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\' {
+            return rest.to_string();
+        }
+    }
+    s
+}
+
 fn launch_in_dir(dir: &Path, origin: &str) -> Option<Launch> {
     let program = dir.join(exe_name());
     if !program.is_file() {
         return None;
     }
     let resources = dir.join("engine");
-    let mut args = vec!["--resources".to_string(), resources.display().to_string()];
+    let mut args = vec!["--resources".to_string(), resources_arg(&resources)];
     if let Ok(device) = std::env::var("SPEKTRALAB_HOST_DEVICE") {
         args.push("--device".into());
         args.push(device);
@@ -449,7 +470,7 @@ pub fn resolve_launch<R: Runtime>(app: &AppHandle<R>) -> Result<Launch, String> 
                 .resource_dir()
                 .map(|r| r.join("host").join("engine"))
                 .unwrap_or_else(|_| dir.join("engine"));
-            let mut args = vec!["--resources".to_string(), resources.display().to_string()];
+            let mut args = vec!["--resources".to_string(), resources_arg(&resources)];
             if let Ok(device) = std::env::var("SPEKTRALAB_HOST_DEVICE") {
                 args.push("--device".into());
                 args.push(device);
@@ -469,4 +490,29 @@ pub fn resolve_launch<R: Runtime>(app: &AppHandle<R>) -> Result<Launch, String> 
         "SpektraLab could not find its engine host ({}). Reinstall the app, or set SPEKTRALAB_HOST_DIR.",
         exe_name()
     ))
+}
+
+#[cfg(test)]
+mod resources_arg_tests {
+    use super::resources_arg;
+    use std::path::Path;
+
+    #[test]
+    fn verbatim_drive_path_loses_its_prefix() {
+        let p = r"\\?\I:\Users\Henry\AppData\Local\Programs\SpektraLab Claude UI\host\engine";
+        assert_eq!(resources_arg(Path::new(p)), r"I:\Users\Henry\AppData\Local\Programs\SpektraLab Claude UI\host\engine");
+    }
+
+    #[test]
+    fn verbatim_unc_path_becomes_a_share() {
+        assert_eq!(resources_arg(Path::new(r"\\?\UNC\nas\apps\engine")), r"\\nas\apps\engine");
+    }
+
+    #[test]
+    fn plain_paths_are_unchanged() {
+        assert_eq!(resources_arg(Path::new(r"C:\Program Files\SpektraLab\host\engine")), r"C:\Program Files\SpektraLab\host\engine");
+        assert_eq!(resources_arg(Path::new("/opt/spektralab/host/engine")), "/opt/spektralab/host/engine");
+        // A verbatim path that is not a drive path keeps its prefix.
+        assert_eq!(resources_arg(Path::new(r"\\?\Volume{1234}\engine")), r"\\?\Volume{1234}\engine");
+    }
 }
