@@ -9,9 +9,12 @@
 #   desktop-checks        typecheck, eslint, vitest, cargo test, Playwright
 #                         (Chromium against the in-page mock host).
 #   package-linux         .deb + AppImage with the Linux host inside.
-#   package-windows       the NSIS installer, built natively on Windows around
-#                         the cross-built host; then installed silently and
-#                         the installed host asked `hello` on a real Windows.
+#   package-windows       the NSIS installer and the portable zip, built
+#                         natively on Windows around the cross-built host; the
+#                         installer installed silently, the zip unpacked to a
+#                         fresh folder, and both checked on a real Windows.
+#   release               on a v* tag: the installers and the portable zip
+#                         attached to that tag's GitHub release.
 #
 # What a hosted runner cannot tell us: anything about a real GPU (no Vulkan
 # driver on the Windows runner, lavapipe on Linux), whole-image parity with
@@ -25,6 +28,7 @@ name: Desktop (Linux, Windows)
 on:
   push:
     branches: [main, Windows_Linux, 'claude/**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -222,7 +226,7 @@ jobs:
           retention-days: 14
 
   package-windows:
-    name: Package (Windows NSIS installer)
+    name: Package (Windows installer + portable zip)
     needs: [engine-windows-cross, desktop-checks]
     runs-on: windows-latest
     timeout-minutes: 60
@@ -286,9 +290,91 @@ jobs:
           python .github/scripts/host_hello.py --host $hostExe.FullName --resources $engine.FullName
           if ($LASTEXITCODE -ne 0) { throw "installed host failed hello" }
 
+      # The portable zip on its own: unpacked into a fresh folder with a space
+      # in its path, away from the checkout (so the dev fallback that walks up
+      # to build/ cannot find a host), then:
+      #   - every exe/dll may import only system DLLs or what the zip carries;
+      #   - the zipped host answers hello with the zipped engine resources;
+      #   - SpektraLab.exe starts, stays up, and launches the host beside it.
+      - name: Unpack the portable zip and check it runs standalone
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem desktop/release/windows/*-portable.zip | Select-Object -First 1
+          if (-not $zip) { throw "no portable zip in desktop/release/windows" }
+          "zip: $($zip.Name) ($([math]::Round($zip.Length / 1MB, 1)) MB)"
+          $dest = Join-Path $env:RUNNER_TEMP 'portable test'
+          Expand-Archive $zip.FullName -DestinationPath $dest
+          $dir = Get-ChildItem $dest -Directory | Select-Object -First 1
+          Get-ChildItem $dir.FullName | Format-Table Name, Length -AutoSize | Out-String | Write-Host
+          foreach ($f in 'SpektraLab.exe', 'spektralab-host.exe', 'host\engine\vulkan', 'README.txt', 'LICENSE.txt') {
+            if (-not (Test-Path (Join-Path $dir.FullName $f))) { throw "the zip lacks $f" }
+          }
+
+          python -m pip install --quiet pefile
+          python .github/scripts/pe_deps.py $dir.FullName
+          if ($LASTEXITCODE -ne 0) { throw "the portable folder needs a DLL it does not carry" }
+
+          python .github/scripts/host_hello.py --host (Join-Path $dir.FullName 'spektralab-host.exe') --resources (Join-Path $dir.FullName 'host\engine')
+          if ($LASTEXITCODE -ne 0) { throw "the zipped host failed hello" }
+
+          $app = Start-Process (Join-Path $dir.FullName 'SpektraLab.exe') -WorkingDirectory $env:RUNNER_TEMP -PassThru
+          $hostProc = $null
+          for ($i = 0; $i -lt 60 -and -not $hostProc; $i++) {
+            Start-Sleep -Milliseconds 500
+            if ($app.HasExited) { throw "SpektraLab.exe exited with $($app.ExitCode) right after starting" }
+            $hostProc = Get-CimInstance Win32_Process -Filter "Name = 'spektralab-host.exe'" |
+              Where-Object { $_.ParentProcessId -eq $app.Id -and $_.ExecutablePath -like "$($dir.FullName)*" } |
+              Select-Object -First 1
+          }
+          if (-not $hostProc) { Stop-Process -Id $app.Id -Force; throw "SpektraLab.exe did not start the spektralab-host.exe beside it" }
+          "app pid $($app.Id) started host pid $($hostProc.ProcessId):"
+          "  $($hostProc.CommandLine)"
+          # The engine joins file names onto --resources with '/', which Windows
+          # takes literally after a verbatim \\?\ prefix (Tauri's resource_dir()
+          # returns one here), so the app must pass the plain form.
+          if ($hostProc.CommandLine -match [regex]::Escape('\\?\')) {
+            Stop-Process -Id $app.Id -Force
+            throw "the app passed a verbatim (\\?\) path to the host; the engine cannot open its resources from it"
+          }
+          Start-Sleep -Seconds 5
+          if ($app.HasExited) { throw "SpektraLab.exe exited with $($app.ExitCode)" }
+          Stop-Process -Id $app.Id -Force
+          Get-Process spektralab-host -ErrorAction SilentlyContinue | Stop-Process -Force
+
       - uses: actions/upload-artifact@v4
         with:
           name: spektralab-windows-x64
           path: desktop/release/windows/*-setup.exe
           if-no-files-found: error
           retention-days: 14
+
+      # Uploaded as the zip itself (an artifact download wraps it in one more zip).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spektralab-windows-x64-portable
+          path: desktop/release/windows/*-portable.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Attach to the GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [package-linux, package-windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: spektralab-*
+          path: dist
+          merge-multiple: true
+
+      - name: List the files
+        run: ls -l dist
+
+      # Creates the release for the tag if there is none, else adds to it.
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
