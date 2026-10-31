@@ -3,6 +3,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/theme.css';
+import './styles/theme-claude.css';
+import { UI_FLAVOR } from './flavor';
 import { setLanguage } from './i18n';
 import { settingsStore } from './state/settings';
 import { boot } from './state/session';
@@ -11,6 +13,9 @@ import { installKeys } from './windows/keys';
 import { MENU_CHORDS, installMenu } from './windows/menus';
 import { inTauri } from './host/transport';
 import { useSettings } from './state/settings';
+
+// The skin: theme-claude.css only matches under data-ui="claude".
+document.documentElement.dataset.ui = UI_FLAVOR;
 
 function applySettings() {
   const s = settingsStore.getState();

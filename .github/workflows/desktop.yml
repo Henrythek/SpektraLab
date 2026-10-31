@@ -292,3 +292,74 @@ jobs:
           path: desktop/release/windows/*-setup.exe
           if-no-files-found: error
           retention-days: 14
+
+  # "SpektraLab Claude UI": the same app and engine with the Claude Design
+  # System skin (desktop/src/styles/theme-claude.css), its own product name,
+  # identifier, install directory and edit store. Built beside the classic
+  # installer above, which this job does not touch.
+  package-windows-claude:
+    name: Package (Windows NSIS installer, Claude UI)
+    needs: [engine-windows-cross, desktop-checks]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      SPEKTRALAB_FLAVOR: claude
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: host-win-x64
+
+      - name: Unpack the staged host
+        shell: bash
+        run: mkdir -p build && tar -C build -xzf host-win-x64.tgz
+
+      - name: npm ci
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build the installer
+        working-directory: desktop
+        run: node scripts/package.mjs win
+
+      - name: Install silently and check the installed app
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem desktop/release/windows-claude/*-setup.exe | Select-Object -First 1
+          if (-not $setup) { throw "no installer in desktop/release/windows-claude" }
+          "installer: $($setup.Name) ($([math]::Round($setup.Length / 1MB, 1)) MB)"
+          $p = Start-Process $setup.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
+          $roots = @("$env:LOCALAPPDATA\SpektraLab Claude UI", "$env:ProgramFiles\SpektraLab Claude UI") | Where-Object { Test-Path $_ }
+          if (-not $roots) { throw "no install directory under LOCALAPPDATA or Program Files" }
+          $app = Get-ChildItem -Path $roots -Recurse -Filter '*.exe' | Where-Object { $_.Name -match '^SpektraLab-ClaudeUI\.exe$' } | Select-Object -First 1
+          $hostExe = Get-ChildItem -Path $roots -Recurse -Filter 'spektralab-host*.exe' | Select-Object -First 1
+          $engine = Get-ChildItem -Path $roots -Recurse -Directory -Filter engine | Where-Object { Test-Path (Join-Path $_.FullName 'vulkan') } | Select-Object -First 1
+          if (-not $app) { throw "the app exe is not installed" }
+          if (-not $hostExe) { throw "spektralab-host.exe is not installed" }
+          if (-not $engine) { throw "the engine resources are not installed" }
+          "app:    $($app.FullName)"
+          "host:   $($hostExe.FullName)"
+          "engine: $($engine.FullName)"
+          python .github/scripts/host_hello.py --host $hostExe.FullName --resources $engine.FullName
+          if ($LASTEXITCODE -ne 0) { throw "installed host failed hello" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spektralab-claude-ui-windows-x64
+          path: desktop/release/windows-claude/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14

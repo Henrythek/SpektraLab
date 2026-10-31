@@ -39,6 +39,7 @@ import { settingsStore } from './settings';
 import { frameImages, makeThumbFromPrint } from './frames';
 import { thumbs } from './thumbs';
 import { tz } from '../i18n';
+import { APP_NAME } from '../flavor';
 
 export type Tool = 'select' | 'hand' | 'crop';
 
@@ -547,7 +548,7 @@ async function setLibrary(folder: string, files: FileEntry[]) {
   frameImages.print = null;
   frameImages.original = null;
   set({ folder, frames: files, selection: null, picked: [], savedGeometry: {}, thumbVersion: get().thumbVersion + 1, imageVersion: get().imageVersion + 1, badge: null });
-  void platform().setTitle(`SpektraLab — ${baseName(folder)}`);
+  void platform().setTitle(`${APP_NAME} — ${baseName(folder)}`);
   // The thumbnails' crop masks come from each frame's saved geometry.
   void Promise.all(
     files.map(async (f) => {

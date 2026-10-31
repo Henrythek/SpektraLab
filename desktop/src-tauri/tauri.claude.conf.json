@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SpektraLab Claude UI",
+  "mainBinaryName": "SpektraLab-ClaudeUI",
+  "identifier": "app.spektralab.desktop.claudeui",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "SpektraLab Claude UI",
+        "width": 1600,
+        "height": 960,
+        "minWidth": 1100,
+        "minHeight": 680,
+        "theme": "Dark",
+        "backgroundColor": "#151515",
+        "dragDropEnabled": true
+      }
+    ]
+  },
+  "bundle": {
+    "windows": {
+      "nsis": {
+        "startMenuFolder": "SpektraLab Claude UI"
+      }
+    }
+  }
+}

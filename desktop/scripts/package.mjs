@@ -20,6 +20,11 @@
 // (Tauri's documented cargo-xwin/MSVC path is behind SPEKTRALAB_WIN_TOOLCHAIN=msvc;
 // its CRT download was refused here), NSIS from the system (`makensis`).
 // Env: SPEKTRALAB_HOST_BUILD overrides the repo's build/ directory.
+// SPEKTRALAB_FLAVOR=claude builds "SpektraLab Claude UI" instead: the Claude
+// Design System skin (VITE_UI_FLAVOR=claude, src/styles/theme-claude.css),
+// with its own product name, identifier (so its own edit store and install
+// directory) and output folder (release/<os>-claude/). It installs beside the
+// classic app and changes nothing about it.
 
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -32,6 +37,11 @@ const tauriDir = join(desktop, 'src-tauri');
 const repo = resolve(desktop, '..');
 const buildDir = process.env.SPEKTRALAB_HOST_BUILD ?? join(repo, 'build');
 const which = process.argv[2];
+const flavor = process.env.SPEKTRALAB_FLAVOR ?? 'classic';
+if (flavor !== 'classic' && flavor !== 'claude') {
+  console.error(`package: SPEKTRALAB_FLAVOR must be classic or claude, not ${flavor}`);
+  process.exit(1);
+}
 
 const TARGETS = {
   linux: {
@@ -104,8 +114,10 @@ function stage(t) {
   return confPath;
 }
 
+const outDir = (t) => (flavor === 'claude' ? `${t.out}-claude` : t.out);
+
 function collect(t) {
-  const release = join(desktop, 'release', t.out);
+  const release = join(desktop, 'release', outDir(t));
   rmSync(release, { recursive: true, force: true });
   mkdirSync(release, { recursive: true });
   // A cross build lands under target/<triple>/; a native one under target/release/.
@@ -116,9 +128,11 @@ function collect(t) {
     for (const kind of readdirSync(root)) {
       for (const f of readdirSync(join(root, kind))) {
         const p = join(root, kind, f);
-        if (statSync(p).isFile() && /\.(deb|AppImage|exe|rpm)$/.test(f)) {
+        // Both flavors share target/: keep only this flavor's packages.
+        const isClaude = /claude/i.test(f);
+        if (statSync(p).isFile() && /\.(deb|AppImage|exe|rpm)$/.test(f) && isClaude === (flavor === 'claude')) {
           cpSync(p, join(release, f));
-          found.push(`${join('release', t.out, f)} (${(statSync(p).size / 1e6).toFixed(1)} MB)`);
+          found.push(`${join('release', outDir(t), f)} (${(statSync(p).size / 1e6).toFixed(1)} MB)`);
         }
       }
     }
@@ -130,6 +144,13 @@ const t = TARGETS[which];
 if (!t) die('usage: node scripts/package.mjs linux|win');
 const conf = stage(t);
 const env = { ...process.env };
+const flavorConf = [];
+if (flavor === 'claude') {
+  env.VITE_UI_FLAVOR = 'claude'; // read by beforeBuildCommand's `vite build`
+  flavorConf.push('--config', join(tauriDir, 'tauri.claude.conf.json'));
+} else {
+  delete env.VITE_UI_FLAVOR;
+}
 const onWindows = process.platform === 'win32';
 if (which === 'win' && !onWindows) {
   // Cross build: cargo-xwin's clang-cl/lld-link, and llvm-rc for the resource script.
@@ -139,5 +160,5 @@ if (which === 'linux') env.NO_STRIP = env.NO_STRIP ?? 'true'; // linuxdeploy's s
 // On Windows `npx` is npx.cmd, which needs a shell; the shell then needs a
 // quoted path if the checkout's path has a space in it.
 const arg = (a) => (onWindows && /\s/.test(a) ? `"${a}"` : a);
-execFileSync('npx', ['tauri', 'build', '--config', conf, '--bundles', t.bundles, ...t.extra].map(arg), { cwd: desktop, stdio: 'inherit', env, shell: onWindows });
+execFileSync('npx', ['tauri', 'build', '--config', conf, ...flavorConf, '--bundles', t.bundles, ...t.extra].map(arg), { cwd: desktop, stdio: 'inherit', env, shell: onWindows });
 collect(t);

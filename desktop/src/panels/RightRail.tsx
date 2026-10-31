@@ -496,8 +496,8 @@ function HueWheel({ zone, onChange }: { zone: ColorZone; onChange: (z: Partial<C
       >
         <defs>
           <radialGradient id="wheel-fade">
-            <stop offset="0" stopColor="#2d2d2c" stopOpacity="1" />
-            <stop offset="1" stopColor="#2d2d2c" stopOpacity="0" />
+            <stop offset="0" style={{ stopColor: 'var(--card)' }} stopOpacity="1" />
+            <stop offset="1" style={{ stopColor: 'var(--card)' }} stopOpacity="0" />
           </radialGradient>
         </defs>
         <circle r={R} fill="none" stroke="url(#hue)" />
